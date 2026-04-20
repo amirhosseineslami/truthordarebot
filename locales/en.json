@@ -1,0 +1,12 @@
+{
+  "welcome": "Welcome to Bottle Game! 🎮\nUse /spin to start",
+  "start": "Start Game",
+  "spin": "Bottle is spinning... 🎲",
+  "not_enough_coins": "Not enough coins! 🪙",
+  "score": "Your score: {score}",
+  "leaderboard": "🏆 Leaderboard:\n",
+  "stranger" : "Finding a stranger player...",
+  "play_with_stranger" : "Play with a strnger",
+  "play_with_friend" : "Play with a friend",
+  "get_coin" : "Get a coin!"
+}
