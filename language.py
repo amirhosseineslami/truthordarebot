@@ -16,15 +16,19 @@ class LanguageManager:
                     self.translations[lang_code] = json.load(f)
     
     def get_text(self, key, lang='fa', **kwargs):
-        """Get translated text by key"""
-        # Default to Persian if language not found
-        text = self.translations.get(lang, self.translations.get('fa', {})).get(key, key)
+        data = self.translations.get(lang, self.translations.get('fa', {}))
+        value = data.get(key, key)
         
-        # Replace placeholders (e.g., {score})
-        for key, value in kwargs.items():
-            text = text.replace(f"{{{key}}}", str(value))
+        # اگر مقدار لیست بود، یک عضو تصادفی انتخاب کن
+        if isinstance(value, list):
+            import random
+            value = random.choice(value)
         
-        return text
+        # Replace placeholders
+        for k, v in kwargs.items():
+            value = value.replace(f"{{{k}}}", str(v))
+        
+        return value
 
 # Create global instance
 lang = LanguageManager()
