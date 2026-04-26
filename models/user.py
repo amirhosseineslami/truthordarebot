@@ -9,19 +9,25 @@ class User(BaseModel):
     """
     
     __tablename__ = 'users'
-    
+
+    # For hybrid sync
+    last_synced_at = BigIntegerField(default=0)   # timestamp of last successful sync
+    is_dirty = BooleanField(default=True)          # True if local changes not yet synced
+        
     # Identification Fields
     user_id = CharField(max_length=100, unique=True, index=True)
     username = CharField(max_length=100, null=True, index=True)
     first_name = CharField(max_length=255, null=True)
     last_name = CharField(max_length=255, null=True)
     chat_id = CharField(max_length=100, index=True)
+
     
     # Game Related Fields
     coin = IntegerField(default=0)
     score = IntegerField(default=0)
     level = IntegerField(default=1)
     game_state = TextField(default='{}')  # Store JSON as string
+    blocked_users = TextField(default='[]')  # JSON list of blocked user chat_ids
     
     # User Preferences
     sex = IntegerField(default=0)  # 0: unknown, 1: male, 2: female
@@ -82,6 +88,10 @@ class User(BaseModel):
         self.coin += amount
         self.save()
         return self.coin
+    
+    def save(self, *args, **kwargs):
+        self.is_dirty = True
+        return super().save(*args, **kwargs)
     
     def remove_coins(self, amount: int) -> bool:
         """Remove coins if enough balance"""
@@ -171,6 +181,38 @@ class User(BaseModel):
         """Set entire game state from dictionary"""
         self.game_state = json.dumps(state)
         self.save()
+
+    @property
+    def blocked_users_list(self) -> list:
+        """Get blocked users as a list"""
+        try:
+            return json.loads(self.blocked_users) if self.blocked_users else []
+        except:
+            return []
+
+    def block_user(self, chat_id_to_block: str) -> bool:
+        """Block a user by their chat_id"""
+        blocked = self.blocked_users_list
+        if chat_id_to_block not in blocked:
+            blocked.append(chat_id_to_block)
+            self.blocked_users = json.dumps(blocked)
+            self.save()
+            return True
+        return False
+
+    def unblock_user(self, chat_id_to_unblock: str) -> bool:
+        """Unblock a user by their chat_id"""
+        blocked = self.blocked_users_list
+        if chat_id_to_unblock in blocked:
+            blocked.remove(chat_id_to_unblock)
+            self.blocked_users = json.dumps(blocked)
+            self.save()
+            return True
+        return False
+
+    def is_blocked(self, chat_id_to_check: str) -> bool:
+        """Check if a given chat_id is blocked by this user"""
+        return chat_id_to_check in self.blocked_users_list
     
     # User Status
     def ban(self):

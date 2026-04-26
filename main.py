@@ -8,7 +8,7 @@ from language import lang
 from models.offset import Offset
 from connection_manager import ConnectionManager
 import json
-from models.user import User
+from models.sync_manager import SyncManager
 import random
 LOCAL_SAVE_NAME = "offset.json"
 OFFSET_STORE_KEY = "offset"
@@ -25,6 +25,14 @@ searching_allusers:list[Message] = []
 
 connection_between_players  = ConnectionManager()
 user_language = "fa"
+
+# At startup, choose mode (e.g., via environment variable)
+import os
+mode = os.environ.get('BOT_MODE', 'periodic')   # 'online', 'offline', 'periodic'
+interval = int(os.environ.get('SYNC_INTERVAL_HOURS', 2))
+
+sync_mgr = SyncManager(mode=mode, sync_interval_hours=interval)
+sync_mgr.start_periodic_sync()   # only does something in 'periodic' mode
 
 def main():
 
