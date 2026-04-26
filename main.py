@@ -8,6 +8,7 @@ from language import lang
 from models.offset import Offset
 from connection_manager import ConnectionManager
 import json
+from models.user import User
 LOCAL_SAVE_NAME = "offset.json"
 OFFSET_STORE_KEY = "offset"
 
@@ -106,12 +107,10 @@ def message_handler(parsedMessages: list[Message]):
             message_to_send = lang.get_text("welcome",user_language)
             keydata = get_main_page_keydata()
 
+            this_user , created = User().get_or_create_user(msg.sender_id,msg.chat_id)
+            
+
         elif msg.text.strip().lower().startswith(lang.get_text("play_with_stranger", user_language).lower()):
-            # stranger game
-            message_to_send = lang.get_text("stranger")
-            key_cancel_the_search = keypad.create_simple_button(4, lang.get_text("cancel_the_search", user_language))
-            row1 = keypad.create_keypad_row([key_cancel_the_search])
-            keydata = keypad.build_keypad([row1])
 
             # Play
             play_with_stranger(msg)
@@ -123,13 +122,12 @@ def message_handler(parsedMessages: list[Message]):
 
         elif msg.text == lang.get_text("disconnect_the_connection", user_language):
 
-
             # Notify the current user about disconnection
             message_to_send = lang.get_text("your_disconnect_request_is_accepted", user_language)
             keydata = get_main_page_keydata()
 
             # Notify the opposite user about disconnection status
-            apiClient.send_message(connection_between_players.forward_message(msg.chat_id, ""), lang.get_text("other_user_disconnected"))
+            keypad.send_message_with_keypad(connection_between_players.forward_message(msg.chat_id, ""), lang.get_text("other_user_disconnected"),get_main_page_keydata())
 
             # Remove the connection between these 2 players
             connection_between_players.disconnect(msg.chat_id)
@@ -163,6 +161,8 @@ def play_with_stranger(msg:Message):
         if not connection_between_players.is_in_queue(msg.chat_id):
             connection_between_players.add_to_waiting_queue(msg.chat_id,msg.sender_id)
             print(msg.chat_id, "Added to queue!")
+            keypad.send_message_with_keypad(msg.chat_id, lang.get_text("stranger"), get_cancel_the_search_keydata())
+
         # Add the user to the searching list
         print(connection_between_players.get_queue_size(),"This is the new queue size")
     
@@ -174,9 +174,8 @@ def play_with_stranger(msg:Message):
             connected_player_chat_id, connected_player_username = random_pair
 
             # Send message to both connected players that they're connected now!
-            keypad.send_message_with_keypad(connected_player_chat_id, lang.get_text("you_are_now_connected_to_somebody"),)
-            apiClient.send_message(msg.chat_id, lang.get_text("you_are_now_connected_to_somebody"))
-            
+            keypad.send_message_with_keypad(connected_player_chat_id, lang.get_text("you_are_now_connected_to_somebody"),get_keydata_player_connected())            
+            keypad.send_message_with_keypad(msg.chat_id, lang.get_text("you_are_now_connected_to_somebody"),get_keydata_player_connected())            
 
 def get_main_page_keydata():
     key_play_with_stranger = keypad.create_simple_button(1, lang.get_text("play_with_stranger",user_language))
@@ -185,6 +184,18 @@ def get_main_page_keydata():
     row1 = keypad.create_keypad_row([key_play_with_stranger, key_play_with_friend])
     row2 = keypad.create_keypad_row([key_get_coin])
     keydata = keypad.build_keypad([row1,row2])
+    return keydata
+
+def get_keydata_player_connected():
+    key_disconnect_the_connection = keypad.create_simple_button(1, lang.get_text("disconnect_the_connection", user_language))
+    row1 = keypad.create_keypad_row([key_disconnect_the_connection])
+    keydata = keypad.build_keypad([row1])
+    return keydata
+
+def get_cancel_the_search_keydata():
+    key_cancel_the_search = keypad.create_simple_button(1, lang.get_text("cancel_the_search", user_language))
+    row1 = keypad.create_keypad_row([key_cancel_the_search])
+    keydata = keypad.build_keypad([row1])
     return keydata
 
 def forward_message_to_connected_player(msg:Message, user_language = "fa"):

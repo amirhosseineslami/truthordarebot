@@ -13,5 +13,6 @@
   "you_are_now_connected_to_somebody" : "شما اکنون به کاربری متصل شده اید! به او درود بفرستید.",
   "search_is_canceled_by_user" : "جست و جو توسط شما لغو شد. از منو گزینه مورد نظر خود را انتخاب کنید.",
   "other_user_disconnected": "بازیکن مقابل اتصال را قطع کرد. از منو گزینه مورد نظر خود را انتخاب کنید.",
-  "your_disconnect_request_is_accepted" : "اتصال به درخواست شما قطع شد. از منو گزینه مورد نظر خود را انتخاب کنید."
+  "your_disconnect_request_is_accepted" : "اتصال به درخواست شما قطع شد. از منو گزینه مورد نظر خود را انتخاب کنید.",
+  "disconnect_the_connection" : "قطع اتصال"
 }
