@@ -1,21 +1,21 @@
+# sync_manager.py
 import json
 import time
 import threading
 import atexit
+from typing import Optional, List, Dict, Any
 from peewee import SqliteDatabase, Model, CharField, IntegerField, BigIntegerField, BooleanField, TextField
-from playhouse.shortcuts import model_to_dict, dict_to_model
+from playhouse.shortcuts import model_to_dict
 
-# Import your remote User model (the one you already have)
 from models.user import User as RemoteUser
 from database import db as remote_db   # your MySQL connection
 
-# ============================================================
+# -------------------------------------------------------------------
 # Local SQLite database and LocalUser model (mirrors RemoteUser)
-# ============================================================
+# -------------------------------------------------------------------
 local_db = SqliteDatabase('bot_local.db')
 
 class LocalUser(Model):
-    """Local copy of User – same fields as RemoteUser."""
     # Sync tracking
     last_synced_at = BigIntegerField(default=0)
     is_dirty = BooleanField(default=True)
@@ -53,13 +53,10 @@ class LocalUser(Model):
         table_name = 'users'
 
     def to_remote_dict(self):
-        """Convert local model to dict suitable for remote update."""
-        data = model_to_dict(self, exclude=[LocalUser.id, LocalUser.last_synced_at])
-        return data
+        return model_to_dict(self, exclude=[LocalUser.id, LocalUser.last_synced_at])
 
     @classmethod
     def from_remote(cls, remote_user: RemoteUser):
-        """Create or update local user from remote user."""
         local, created = cls.get_or_create(
             user_id=remote_user.user_id,
             chat_id=remote_user.chat_id,
@@ -87,7 +84,6 @@ class LocalUser(Model):
             }
         )
         if not created:
-            # Update local fields from remote (overwrite)
             for field in ['username', 'first_name', 'last_name', 'coin', 'score',
                           'level', 'game_state', 'blocked_users', 'sex', 'language',
                           'subscription_date', 'is_active', 'is_banned',
@@ -100,41 +96,66 @@ class LocalUser(Model):
         return local
 
 
-# ============================================================
-# SyncManager – handles hybrid online/offline/periodic modes
-# ============================================================
+# -------------------------------------------------------------------
+# SyncManager – hybrid online/offline/periodic sync
+# -------------------------------------------------------------------
 class SyncManager:
-    def __init__(self, mode='periodic', sync_interval_hours=2):
-        """
-        mode: 'online'   – write to both local and remote immediately
-              'offline'  – write only to local (never sync)
-              'periodic' – write to local, sync every N hours and on exit
-        """
+    def __init__(self, mode='periodic', sync_interval_hours=2, pull_on_start=True):
         self.mode = mode
         self.sync_interval_seconds = sync_interval_hours * 3600
         self._sync_thread = None
         self._stop_event = threading.Event()
 
-        # Ensure local tables exist
         local_db.connect()
         local_db.create_tables([LocalUser], safe=True)
 
-        # If mode is 'online', also ensure remote table exists
         if mode == 'online':
             remote_db.create_tables([RemoteUser], safe=True)
+                    # Ensure the remote table exists
 
-        # Register exit handler to sync dirty users
+        if not RemoteUser.table_exists():
+            RemoteUser.create_table()
+            print("✅ Created missing 'users' table in remote database")
+
+        # ensure that the column exists in the table
+        self._ensure_remote_columns()
+
+        if pull_on_start:
+            self.pull_all_from_remote()
+
         atexit.register(self.sync_on_exit)
 
     # -----------------------------------------------------------------
-    # Public user access methods (use these instead of direct User model)
+    # User existence and lookup (no creation)
     # -----------------------------------------------------------------
-    def get_user(self, user_id: str, chat_id: str, **defaults):
-        """
-        Retrieve user from local storage (creates if not exists).
-        If mode is 'online', also ensures remote user exists.
-        Returns a LocalUser instance.
-        """
+    def user_exists(self, user_id: str = None, chat_id: str = None) -> bool:
+        query = LocalUser.select()
+        if user_id:
+            query = query.where(LocalUser.user_id == user_id)
+        elif chat_id:
+            query = query.where(LocalUser.chat_id == chat_id)
+        else:
+            raise ValueError("Either user_id or chat_id must be provided")
+        return query.exists()
+
+    def find_user(self, user_id: str = None, chat_id: str = None) -> Optional[LocalUser]:
+        if not (user_id or chat_id):
+            raise ValueError("Either user_id or chat_id must be provided")
+        if user_id:
+            try:
+                return LocalUser.get(LocalUser.user_id == user_id)
+            except LocalUser.DoesNotExist:
+                return None
+        else:
+            try:
+                return LocalUser.get(LocalUser.chat_id == chat_id)
+            except LocalUser.DoesNotExist:
+                return None
+
+    # -----------------------------------------------------------------
+    # Get or create user
+    # -----------------------------------------------------------------
+    def get_user(self, user_id: str, chat_id: str, **defaults) -> LocalUser:
         local_user, created = LocalUser.get_or_create(
             user_id=user_id,
             chat_id=chat_id,
@@ -142,7 +163,7 @@ class SyncManager:
                 'username': defaults.get('username'),
                 'first_name': defaults.get('first_name'),
                 'last_name': defaults.get('last_name'),
-                'coin': defaults.get('coin', 100),
+                'coin': defaults.get('coin', 5),
                 'language': defaults.get('language', 'fa'),
                 'game_state': '{}',
                 'blocked_users': '[]',
@@ -150,57 +171,56 @@ class SyncManager:
             }
         )
         if created and self.mode == 'online':
-            # Also create remote user
             self._push_to_remote(local_user)
             local_user.is_dirty = False
             local_user.save()
         return local_user
 
     def update_user(self, local_user: LocalUser):
-        """
-        Mark a local user as dirty and save.
-        In online mode, immediately pushes to remote.
-        """
         local_user.is_dirty = True
         local_user.save()
         if self.mode == 'online':
             self._push_to_remote(local_user)
 
     # -----------------------------------------------------------------
-    # Sync methods
+    # Sync primitives
     # -----------------------------------------------------------------
     def _push_to_remote(self, local_user: LocalUser):
-        """Push a single local user to remote MySQL."""
         try:
             data = local_user.to_remote_dict()
-            # Find or create remote user
             remote_user, created = RemoteUser.get_or_create(
                 user_id=local_user.user_id,
                 chat_id=local_user.chat_id,
                 defaults=data
             )
             if not created:
-                # Update existing remote user
                 for key, value in data.items():
                     setattr(remote_user, key, value)
                 remote_user.save()
-            # Mark local as synced
             local_user.is_dirty = False
             local_user.last_synced_at = int(time.time())
             local_user.save()
         except Exception as e:
-            print(f"Sync error for {local_user.user_id}: {e}")
+            print(f"Push error for {local_user.user_id}: {e}")
 
     def sync_all_dirty(self):
-        """Push all dirty local users to remote."""
-        dirty_users = LocalUser.select().where(LocalUser.is_dirty == True)
-        count = dirty_users.count()
-        for user in dirty_users:
+        dirty = LocalUser.select().where(LocalUser.is_dirty == True)
+        count = dirty.count()
+        for user in dirty:
             self._push_to_remote(user)
-        print(f"Synced {count} dirty user(s).")
+        if count:
+            print(f"Synced {count} dirty user(s).")
+
+    def pull_all_from_remote(self):
+        print("Pulling all users from remote to local...")
+        remote_count = RemoteUser.select().count()
+        for i, remote in enumerate(RemoteUser.select(), 1):
+            LocalUser.from_remote(remote)
+            if i % 100 == 0:
+                print(f"  Pulled {i}/{remote_count} users")
+        print(f"Pull complete. {remote_count} users synced to local.")
 
     def sync_on_exit(self):
-        """Call this when the bot is shutting down."""
         if self.mode in ('periodic', 'online'):
             print("Syncing before exit...")
             self.sync_all_dirty()
@@ -208,7 +228,7 @@ class SyncManager:
             print("Offline mode – no sync on exit.")
 
     # -----------------------------------------------------------------
-    # Background periodic sync (only for periodic mode)
+    # Periodic sync (background thread)
     # -----------------------------------------------------------------
     def start_periodic_sync(self):
         if self.mode != 'periodic':
@@ -229,18 +249,6 @@ class SyncManager:
         if self._sync_thread:
             self._sync_thread.join(timeout=2)
 
-    # -----------------------------------------------------------------
-    # Optional: pull all remote users into local (initial migration)
-    # -----------------------------------------------------------------
-    def pull_all_from_remote(self):
-        """Copy all remote users to local (overwrites local)."""
-        for remote in RemoteUser.select():
-            LocalUser.from_remote(remote)
-        print("Pulled all users from remote to local.")
-
-    # -----------------------------------------------------------------
-    # Mode switching at runtime
-    # -----------------------------------------------------------------
     def set_mode(self, new_mode: str):
         old_mode = self.mode
         self.mode = new_mode
@@ -249,5 +257,253 @@ class SyncManager:
         if new_mode == 'periodic':
             self.start_periodic_sync()
         elif new_mode == 'online':
-            # Immediately sync all dirty
             self.sync_all_dirty()
+
+    def _ensure_remote_columns(self):
+        """Add any columns that exist in RemoteUser but are missing in the remote table."""
+        # Get existing columns
+        try:
+            cursor = remote_db.execute_sql("SHOW COLUMNS FROM users")
+            existing = {row[0] for row in cursor.fetchall()}
+        except Exception as e:
+            print(f"⚠️ Cannot inspect remote table: {e}")
+            return
+
+        model_fields = RemoteUser._meta.fields
+        for name, field in model_fields.items():
+            if name in ('id', 'created_at', 'updated_at'):
+                continue
+            if name not in existing:
+                # Determine SQL type
+                from peewee import CharField, IntegerField, BigIntegerField, BooleanField, TextField
+                if isinstance(field, CharField):
+                    sql_type = f"VARCHAR({field.max_length})"
+                elif isinstance(field, IntegerField):
+                    sql_type = "INT"
+                elif isinstance(field, BigIntegerField):
+                    sql_type = "BIGINT"
+                elif isinstance(field, BooleanField):
+                    sql_type = "BOOLEAN"
+                elif isinstance(field, TextField):
+                    sql_type = "TEXT"
+                else:
+                    sql_type = "TEXT"
+
+                # Handle default – always quote string defaults
+                default = field.default
+                if default is not None:
+                    if isinstance(default, str):
+                        default_clause = f"DEFAULT '{default}'"
+                    else:
+                        default_clause = f"DEFAULT {default}"
+                else:
+                    default_clause = ""
+
+                null_clause = "" if field.null else "NOT NULL"
+                alter_sql = f"ALTER TABLE users ADD COLUMN {name} {sql_type} {null_clause} {default_clause}".strip()
+                try:
+                    remote_db.execute_sql(alter_sql)
+                    print(f"✅ Added missing column '{name}'")
+                except Exception as e:
+                    print(f"⚠️ Failed to add column {name}: {e}")
+
+                    
+# -------------------------------------------------------------------
+# UserManager – high‑level user operations (complete)
+# -------------------------------------------------------------------
+class UserManager:
+    def __init__(self, sync_manager: SyncManager):
+        self.sync = sync_manager
+
+    # ---------- existence & retrieval ----------
+    def exists(self, user_id: str = None, chat_id: str = None) -> bool:
+        return self.sync.user_exists(user_id, chat_id)
+
+    def get(self, user_id: str = None, chat_id: str = None) -> Optional[LocalUser]:
+        return self.sync.find_user(user_id, chat_id)
+
+    def get_or_create(self, user_id: str, chat_id: str, **defaults) -> LocalUser:
+        return self.sync.get_user(user_id, chat_id, **defaults)
+
+    # ---------- getters ----------
+    def display_name(self, user: LocalUser) -> str:
+        return user.display_name
+
+    def full_name(self, user: LocalUser) -> str:
+        return user.full_name
+
+    def sex(self, user: LocalUser) -> int:
+        return user.sex
+
+    def language(self, user: LocalUser) -> str:
+        return user.language
+
+    def coin(self, user: LocalUser) -> int:
+        return user.coin
+
+    def score(self, user: LocalUser) -> int:
+        return user.score
+
+    def level(self, user: LocalUser) -> int:
+        return user.level
+
+    def game_state(self, user: LocalUser, key: str = None, default=None):
+        if key:
+            return user.get_game_state(key, default)
+        return user.game_state_dict
+
+    def blocked_users(self, user: LocalUser) -> List[str]:
+        return user.blocked_users_list
+
+    def is_subscribed(self, user: LocalUser) -> bool:
+        return user.is_subscribed
+
+    def subscription_days_left(self, user: LocalUser) -> int:
+        return user.get_subscription_days_left()
+
+    def win_rate(self, user: LocalUser) -> float:
+        return user.win_rate
+
+    # ---------- setters (auto sync) ----------
+    def set_first_name(self, user: LocalUser, value: str):
+        user.first_name = value
+        self.sync.update_user(user)
+
+    def set_last_name(self, user: LocalUser, value: str):
+        user.last_name = value
+        self.sync.update_user(user)
+
+    def set_username(self, user: LocalUser, value: str):
+        user.username = value
+        self.sync.update_user(user)
+
+    def set_sex(self, user: LocalUser, value: int):
+        if value not in (0,1,2):
+            raise ValueError("Sex must be 0,1,2")
+        user.sex = value
+        self.sync.update_user(user)
+
+    def set_language(self, user: LocalUser, value: str):
+        if value not in ('fa','en'):
+            raise ValueError("Language must be 'fa' or 'en'")
+        user.language = value
+        self.sync.update_user(user)
+
+    # ---------- game economy ----------
+    def add_coins(self, user: LocalUser, amount: int) -> int:
+        user.coin += amount
+        self.sync.update_user(user)
+        return user.coin
+
+    def remove_coins(self, user: LocalUser, amount: int) -> bool:
+        if user.coin >= amount:
+            user.coin -= amount
+            self.sync.update_user(user)
+            return True
+        return False
+
+    def add_score(self, user: LocalUser, points: int) -> int:
+        user.add_score(points)   # this already calls save() and marks dirty
+        # But add_score calls save() which calls super().save(), not our update_user.
+        # To ensure sync, we call update_user again.
+        self.sync.update_user(user)
+        return user.score
+
+    def set_level(self, user: LocalUser, new_level: int):
+        if new_level < 1:
+            raise ValueError("Level must be >=1")
+        user.level = new_level
+        self.sync.update_user(user)
+
+    # ---------- game state (JSON) ----------
+    def set_game_state(self, user: LocalUser, key: str, value: Any):
+        user.update_game_state(key, value)   # saves internally, marks dirty
+        self.sync.update_user(user)   # ensure sync (though already dirty)
+
+    def get_game_state(self, user: LocalUser, key: str, default=None):
+        return user.get_game_state(key, default)
+
+    def clear_game_state(self, user: LocalUser):
+        user.clear_game_state()
+        self.sync.update_user(user)
+
+    # ---------- blocking ----------
+    def block_user(self, user: LocalUser, chat_id_to_block: str) -> bool:
+        return user.block_user(chat_id_to_block)
+
+    def unblock_user(self, user: LocalUser, chat_id_to_unblock: str) -> bool:
+        return user.unblock_user(chat_id_to_unblock)
+
+    def is_blocked(self, user: LocalUser, chat_id_to_check: str) -> bool:
+        return user.is_blocked(chat_id_to_check)
+
+    # ---------- subscription ----------
+    def extend_subscription(self, user: LocalUser, days: int):
+        user.extend_subscription(days)
+
+    # ---------- statistics ----------
+    def record_game_result(self, user: LocalUser, won: bool):
+        user.record_game_result(won)
+
+    def record_message(self, user: LocalUser):
+        user.record_message()
+
+    def update_last_seen(self, user: LocalUser):
+        user.update_last_seen()
+
+    # ---------- status ----------
+    def ban_user(self, user: LocalUser):
+        user.ban()
+
+    def unban_user(self, user: LocalUser):
+        user.unban()
+
+    def deactivate_user(self, user: LocalUser):
+        user.deactivate()
+
+    def activate_user(self, user: LocalUser):
+        user.activate()
+
+    # ---------- bulk / admin ----------
+    def get_all_users(self, limit: int = None, offset: int = 0) -> List[LocalUser]:
+        query = LocalUser.select()
+        if limit:
+            query = query.limit(limit).offset(offset)
+        return list(query)
+
+    def get_leaderboard(self, limit: int = 10) -> List[LocalUser]:
+        return list(LocalUser.select().order_by(LocalUser.score.desc()).limit(limit))
+
+    def get_richest(self, limit: int = 10) -> List[LocalUser]:
+        return list(LocalUser.select().order_by(LocalUser.coin.desc()).limit(limit))
+
+    def get_by_language(self, lang: str) -> List[LocalUser]:
+        return list(LocalUser.select().where(LocalUser.language == lang))
+
+    def get_inactive_users(self, days: int = 30) -> List[LocalUser]:
+        threshold = int(time.time()) - (days * 86400)
+        return list(LocalUser.select().where(LocalUser.last_seen < threshold))
+
+    def add_coins_all(self, amount: int, condition=None) -> int:
+        query = LocalUser.update(coin=LocalUser.coin + amount)
+        if condition:
+            query = query.where(condition)
+        count = query.execute()
+        LocalUser.update(is_dirty=True).execute()
+        return count
+    
+
+
+if __name__ == "__main__":
+    # Example usage
+    sync_mgr = SyncManager(mode='periodic', sync_interval_hours=1, pull_on_start=True)
+    user_mgr = UserManager(sync_mgr)
+
+    # Create or get a user
+    user = user_mgr.get_or_create(user_id="12345", chat_id="67890", first_name="Alice", language="en")
+    print("User:", user.to_remote_dict())
+
+    # Update some fields
+    user_mgr.set_sex(user, 2)
+    user_mgr.add_coins(user, 50)
+    print("Updated User:", user.to_remote_dict())

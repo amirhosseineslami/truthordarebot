@@ -1,17 +1,13 @@
 import json
-from typing import Dict, Optional, List, Any
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
 import time
-import requests
-from botApiClient import BotApiClient
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
+from enum import Enum
 
-
-apiClient = BotApiClient()
-
-
-# Enums for type safety
+# ------------------------------
+# Enums
+# ------------------------------
 class MessageSenderType(Enum):
     USER = "User"
     BOT = "Bot"
@@ -24,9 +20,61 @@ class UpdateType(Enum):
     DELETE_MESSAGE = "DeleteMessage"
     INLINE_MESSAGE = "InlineMessage"
 
+class ChatType(Enum):
+    USER = "User"
+    GROUP = "Group"
+    CHANNEL = "Channel"
+
+# ------------------------------
+# Data Models
+# ------------------------------
+@dataclass
+class Chat:
+    """Complete chat information (user, group, channel)"""
+    chat_id: str
+    chat_type: str
+    user_id: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    member_count: int = 0
+
+    @property
+    def display_name(self) -> str:
+        if self.chat_type == "User":
+            return self.first_name or self.username or self.user_id or self.chat_id
+        return self.title or self.username or self.chat_id
+
+    @property
+    def full_name(self) -> str:
+        if self.chat_type == "User":
+            return f"{self.first_name or ''} {self.last_name or ''}".strip() or self.username or self.user_id or self.chat_id
+        return self.display_name
+
+    @property
+    def is_private(self) -> bool:
+        return self.chat_type == "User"
+
+    @classmethod
+    def from_api(cls, data: Dict[str, Any]) -> 'Chat':
+        return cls(
+            chat_id=data.get('chat_id', ''),
+            chat_type=data.get('chat_type', 'User'),
+            user_id=data.get('user_id'),
+            first_name=data.get('first_name'),
+            last_name=data.get('last_name'),
+            username=data.get('username'),
+            title=data.get('title'),
+            description=data.get('description'),
+            member_count=data.get('member_count', 0)
+        )
+
+
 @dataclass
 class Message:
-    """Clean representation of a Rubika message"""
+    """Complete message with optional enriched sender info"""
     message_id: str
     text: str
     time: int
@@ -37,102 +85,146 @@ class Message:
     chat_id: str
     update_type: str
     update_time: int
-    
-    # Optional fields (None if not present)
     reply_to_message_id: Optional[str] = None
     file: Optional[Dict] = None
     location: Optional[Dict] = None
     sticker: Optional[Dict] = None
     contact: Optional[Dict] = None
     poll: Optional[Dict] = None
-    
+
+    # Enriched fields (filled after calling enrich_message_with_chat)
+    sender_username: Optional[str] = field(default=None, repr=False)
+    sender_first_name: Optional[str] = field(default=None, repr=False)
+    sender_last_name: Optional[str] = field(default=None, repr=False)
+    _chat_info: Optional[Chat] = field(default=None, repr=False)
+
+    # Properties for easy access
     @property
     def time_readable(self) -> str:
-        """Get human-readable time"""
         return self.datetime.strftime("%Y-%m-%d %H:%M:%S")
-    
+
     @property
     def is_private(self) -> bool:
-        """Check if message is from private chat"""
-        return self.chat_id.startswith('u')
-    
+        return self.sender_id.startswith('u')
+
     @property
     def is_group(self) -> bool:
-        """Check if message is from group"""
-        return self.chat_id.startswith('g')
+        return self.sender_id.startswith('g')
+
+    @property
+    def sender_display_name(self) -> str:
+        """Best available display name (enriched if possible)"""
+        if self.sender_first_name:
+            return self.sender_first_name
+        if self.sender_username:
+            return f"@{self.sender_username}"
+        return self.sender_id
+
+    @property
+    def sender_full_name(self) -> str:
+        if self.sender_first_name:
+            return f"{self.sender_first_name} {self.sender_last_name or ''}".strip()
+        return self.sender_display_name
+
+    @property
+    def preview(self, length: int = 50) -> str:
+        if self.text:
+            preview = self.text[:length]
+            return preview + "..." if len(self.text) > length else preview
+        elif self.file:
+            return f"[File: {self.file.get('file_name', 'unknown')}]"
+        elif self.location:
+            return "[Location]"
+        elif self.sticker:
+            return "[Sticker]"
+        return "[Non-text message]"
+
+    def attach_chat_info(self, chat: Chat):
+        """Enrich the message with sender details from the chat object"""
+        self._chat_info = chat
+        if chat.chat_type == "User":
+            self.sender_username = chat.username
+            self.sender_first_name = chat.first_name
+            self.sender_last_name = chat.last_name
+
+    def to_dict(self) -> dict:
+        return {
+            'message_id': self.message_id,
+            'chat_id': self.chat_id,
+            'text': self.text,
+            'time': self.time_readable,
+            'sender_id': self.sender_id,
+            'sender_name': self.sender_display_name,
+            'sender_username': self.sender_username,
+            'is_edited': self.is_edited,
+            'preview': self.preview,
+        }
+
 
 @dataclass
 class UpdateResponse:
-    """Clean representation of the entire API response"""
     status: str
     updates: List[Message]
     next_offset_id: Optional[str] = None
-    
+
     @property
     def has_updates(self) -> bool:
         return len(self.updates) > 0
-    
+
     @property
     def message_count(self) -> int:
         return len(self.updates)
 
-class RubikaMessageParser:
-    """Clean parser for Rubika API responses"""
-    
-    def __init__(self):
-        self.raw_response = None
-        self.parsed_response = None
-    
-    def parse_response(self, response_data: Dict[str, Any]) -> UpdateResponse:
-        """
-        Parse raw API response into clean UpdateResponse object
-        
-        Args:
-            response_data: Raw JSON response from Rubika API
-            
-        Returns:
-            UpdateResponse with clean message objects
-        """
-        self.raw_response = response_data
-        
+
+@dataclass
+class ChatInfoResponse:
+    status: str
+    chat: Optional[Chat] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "OK" and self.chat is not None
+
+
+# ------------------------------
+# Main Parser Class
+# ------------------------------
+class RubikaParser:
+    @staticmethod
+    def _ensure_dict(data):
+        """Convert JSON string to dict if needed."""
+        if isinstance(data, str):
+            try:
+                return json.loads(data)
+            except:
+                return {}
+        return data
+
+    @staticmethod
+    def parse_updates(response_data: Dict[str, Any]) -> UpdateResponse:
+        response_data = RubikaParser._ensure_dict(response_data)
         status = response_data.get('status', 'UNKNOWN')
         data = response_data.get('data', {})
         updates_raw = data.get('updates', [])
         next_offset_id = data.get('next_offset_id')
-        
-        parsed_messages = []
-        
+        messages = []
         for update in updates_raw:
-            message = self._parse_single_update(update)
-            if message:
-                parsed_messages.append(message)
-        
-        self.parsed_response = UpdateResponse(
-            status=status,
-            updates=parsed_messages,
-            next_offset_id=next_offset_id
-        )
-        
-        return self.parsed_response
-    
-    def _parse_single_update(self, update: Dict[str, Any]) -> Optional[Message]:
-        """Parse a single update object into a Message object"""
+            msg = RubikaParser._parse_single_update(update)
+            if msg:
+                messages.append(msg)
+        return UpdateResponse(status, messages, next_offset_id)
+
+    @staticmethod
+    def _parse_single_update(update: Dict[str, Any]) -> Optional[Message]:
         try:
             update_type = update.get('type')
             chat_id = update.get('chat_id')
             update_time = int(update.get('update_time', 0))
-            
-            # Get the message data (could be in 'new_message' or 'message' field)
             message_data = update.get('new_message') or update.get('message')
-            
             if not message_data:
                 return None
-            
-            # Parse time
             time_stamp = int(message_data.get('time', 0))
             message_datetime = datetime.fromtimestamp(time_stamp) if time_stamp else None
-            
-            # Create clean Message object
             return Message(
                 message_id=message_data.get('message_id', ''),
                 text=message_data.get('text', ''),
@@ -151,194 +243,36 @@ class RubikaMessageParser:
                 contact=message_data.get('contact_message'),
                 poll=message_data.get('poll')
             )
-            
         except Exception as e:
             print(f"Error parsing update: {e}")
             return None
-    
-    def get_text_messages(self) -> List[Message]:
-        """Get only text messages"""
-        if not self.parsed_response:
-            return []
-        return [msg for msg in self.parsed_response.updates if msg.text]
-    
-    def get_messages_from_user(self, user_id: str) -> List[Message]:
-        """Get messages from specific user"""
-        if not self.parsed_response:
-            return []
-        return [msg for msg in self.parsed_response.updates if msg.sender_id == user_id]
-    
-    def get_messages_from_chat(self, chat_id: str) -> List[Message]:
-        """Get messages from specific chat"""
-        if not self.parsed_response:
-            return []
-        return [msg for msg in self.parsed_response.updates if msg.chat_id == chat_id]
-    
-    def print_clean_summary(self):
-        """Print a clean summary of all messages"""
-        if not self.parsed_response:
-            print("No parsed response available")
-            return
-        
-        print(f"\n{'='*60}")
-        print(f"📊 UPDATE SUMMARY")
-        print(f"{'='*60}")
-        print(f"Status: {self.parsed_response.status}")
-        print(f"Total Messages: {self.parsed_response.message_count}")
-        print(f"Next Offset: {self.parsed_response.next_offset_id}")
-        print(f"{'='*60}\n")
-        
-        for i, msg in enumerate(self.parsed_response.updates, 1):
-            print(f"📨 Message {i}:")
-            print(f"   ├─ Chat ID: {msg.chat_id}")
-            print(f"   ├─ From: {msg.sender_type} ({msg.sender_id})")
-            print(f"   ├─ Text: {msg.text[:50] if msg.text else '[No Text]'}")
-            print(f"   ├─ Time: {msg.time_readable}")
-            print(f"   ├─ Message ID: {msg.message_id}")
-            print(f"   └─ Is Edited: {msg.is_edited}")
-            print()
 
-# Simplified parser for quick use
-class SimpleMessageParser:
-    """Even simpler parser for quick message extraction"""
-    
     @staticmethod
-    def get_messages(response_data: Dict) -> List[Dict]:
-        """Extract just the essential message data"""
-        messages = []
-        
+    def parse_chat_info(response_data) -> ChatInfoResponse:
+        response_data = RubikaParser._ensure_dict(response_data)
+        status = response_data.get('status', 'UNKNOWN')
+        if status != "OK":
+            return ChatInfoResponse(status=status, chat=None)
         data = response_data.get('data', {})
-        updates = data.get('updates', [])
-        
-        for update in updates:
-            message_data = update.get('new_message') or update.get('message')
-            if message_data:
-                messages.append({
-                    'chat_id': update.get('chat_id'),
-                    'text': message_data.get('text', ''),
-                    'sender_id': message_data.get('sender_id'),
-                    'sender_type': message_data.get('sender_type'),
-                    'time': message_data.get('time'),
-                    'message_id': message_data.get('message_id')
-                })
-        
-        return messages
-    
+        chat_data = data.get('chat')
+        if not chat_data:
+            return ChatInfoResponse(status=status, chat=None)
+        chat = Chat.from_api(chat_data)
+        return ChatInfoResponse(status=status, chat=chat)
+
     @staticmethod
-    def get_last_message(response_data: Dict) -> Optional[Dict]:
-        """Get only the last message"""
-        messages = SimpleMessageParser.get_messages(response_data)
-        return messages[-1] if messages else None
-    
+    def fetch_chat(api_client, chat_id: str, cache: dict = None) -> Optional[Chat]:
+        if cache and chat_id in cache:
+            return cache[chat_id]
+        response = api_client.get_chat_info(chat_id)
+        chat = RubikaParser.parse_chat_info(response).chat
+        if chat and cache is not None:
+            cache[chat_id] = chat
+        return chat
+
     @staticmethod
-    def get_texts(response_data: Dict) -> List[str]:
-        """Get just the text content of all messages"""
-        messages = SimpleMessageParser.get_messages(response_data)
-        return [msg['text'] for msg in messages if msg['text']]
-
-# Example usage in your bot
-def example_usage(messery_response):
-    """Example of how to use the parser"""
-    
-    # Your messy JSON response
-    messy_response = {
-        'status': 'OK',
-        'data': {
-            'updates': [
-                {
-                    'type': 'NewMessage',
-                    'chat_id': 'b0JpYX406Cx0a7d9c3afc07c381d452a',
-                    'new_message': {
-                        'message_id': '1642537411795972643',
-                        'text': 'hi',
-                        'time': '1776586429',
-                        'is_edited': False,
-                        'sender_type': 'User',
-                        'sender_id': 'u0JpYX40c61685528a9fbb190913b0a2'
-                    },
-                    'update_time': 1776586430
-                }
-            ],
-            'next_offset_id': '69e48ebe8566d54939935bcd'
-        }
-    }
-    
-    # Method 1: Using the full parser
-    print("🔵 FULL PARSER EXAMPLE:")
-    parser = RubikaMessageParser()
-    parsed = parser.parse_response(messery_response)
-    
-    # Print clean summary
-    parser.print_clean_summary()
-    
-    # Access messages easily
-    for message in parsed.updates:
-        print(f"User {message.sender_id} said: {message.text}")
-        print(f"At: {message.time_readable}")
-        print(f"Chat: {message.chat_id}")
-        print(f"Is private: {message.is_private}")
-        print()
-    
-    # Method 2: Using the simple parser
-    print("\n🔵 SIMPLE PARSER EXAMPLE:")
-    texts = SimpleMessageParser.get_texts(messy_response)
-    print(f"All texts: {texts}")
-    
-    last_msg = SimpleMessageParser.get_last_message(messy_response)
-    print(f"Last message: {last_msg}")
-    
-    # Method 3: Get messages by type
-    print("\n🔵 FILTERED MESSAGES:")
-    user_messages = parser.get_messages_from_user('u0JpYX40c61685528a9fbb190913b0a2')
-    print(f"Messages from specific user: {len(user_messages)}")
-    
-    chat_messages = parser.get_messages_from_chat('b0JpYX406Cx0a7d9c3afc07c381d452a')
-    print(f"Messages in specific chat: {len(chat_messages)}")
-    
-    text_messages = parser.get_text_messages()
-    print(f"Text messages only: {len(text_messages)}")
-
-# Integration with your bot
-def simple_bot_integration(token):
-    """Simple example of integrating with your bot"""
-    
-    # Your existing bot code
-    url = f"https://botapi.rubika.ir/v3/{token}/"
-    last_update_id = 0
-    
-    parser = RubikaMessageParser()
-    
-    while True:
-        try:
-            response = requests.post(url + "getUpdates", json={"offset": last_update_id})
-            data = response.json()
-            
-            # Parse the messy response into clean objects
-            parsed_response = parser.parse_response(data)
-            
-            if parsed_response.has_updates:
-                for message in parsed_response.updates:
-                    print(f"\n✅ Received clean message:")
-                    print(f"   Chat: {message.chat_id}")
-                    print(f"   From: {message.sender_id}")
-                    print(f"   Text: {message.text}")
-                    
-                    # Simple command handling
-                    if message.text == "/start":
-                        apiClient.send_message(message.chat_id, "Welcome to the game! 🎮")
-                    elif message.text == "/help":
-                        apiClient.send_message(message.chat_id, "Available commands: /start, /help")
-                    else:
-                        apiClient.send_message(message.chat_id, f"You said: {message.text}")
-                    
-                    last_update_id = int(message.update_time) + 1
-            
-            time.sleep(1)
-            
-        except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(5)
-
-
-if __name__ == "__main__":
-    example_usage()
+    def enrich_message_with_chat(api_client, message: Message, cache: dict = None) -> Message:
+        chat = RubikaParser.fetch_chat(api_client, message.chat_id, cache)
+        if chat:
+            message.attach_chat_info(chat)
+        return message

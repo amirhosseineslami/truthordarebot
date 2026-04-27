@@ -2,14 +2,16 @@ from botApiClient import BotApiClient
 from keypad import Keypad
 import time
 import traceback
-from rubikaMessageParser import RubikaMessageParser
-from rubikaMessageParser import Message
+from rubikaMessageParser import RubikaParser, Chat, Message
 from language import lang
 from models.offset import Offset
 from connection_manager import ConnectionManager
 import json
-from models.sync_manager import SyncManager
+from models.sync_manager import SyncManager, UserManager
+
 import random
+
+
 LOCAL_SAVE_NAME = "offset.json"
 OFFSET_STORE_KEY = "offset"
 
@@ -17,7 +19,7 @@ OFFSET_STORE_KEY = "offset"
 apiClient = BotApiClient()
 keypad = Keypad()
 message_update_offset_id = "69e788f62008759a9b5eed0a"
-parser = RubikaMessageParser()
+parser = RubikaParser()
 
 searching_girls:list[Message] = []
 searching_boys:list[Message] = []
@@ -31,11 +33,13 @@ import os
 mode = os.environ.get('BOT_MODE', 'periodic')   # 'online', 'offline', 'periodic'
 interval = int(os.environ.get('SYNC_INTERVAL_HOURS', 2))
 
-sync_mgr = SyncManager(mode=mode, sync_interval_hours=interval)
+sync_mgr = SyncManager(mode=mode, sync_interval_hours=interval, pull_on_start=True)
 sync_mgr.start_periodic_sync()   # only does something in 'periodic' mode
+user_mgr = UserManager(sync_mgr)
+
+chat_cache = {}   # simple cache to avoid repeated API calls
 
 def main():
-
 
     # Bot is running
     bot_running = True
@@ -74,15 +78,11 @@ def main():
             messages = apiClient.get_updates(message_update_offset_id)
 
             # Parse the messy response into clean objects
-            parsed = parser.parse_response(messages)
+            parsed = parser.parse_updates(messages)
             parsedMessages = parsed.updates
 
             # Process each messages
             message_handler(parsedMessages)
-
-            # Update offset for the next operation
-            if parsed.message_count:
-                print(parsed.message_count)
 
             if parsed.next_offset_id:
                 print(parsed.next_offset_id)
@@ -97,8 +97,6 @@ def main():
                 with open(LOCAL_SAVE_NAME,'w') as f:
                     json.dump(my_offset_dict, f)
                 
-            
-
         except Exception as e:
             traceback.print_exc()
         print(time.time())
@@ -108,20 +106,50 @@ def message_handler(parsedMessages: list[Message]):
     global user_language
 
     for msg in parsedMessages:
-        print(f"{msg.sender_id} in {msg.chat_id}: {msg.text} is being checked!")
+        print(apiClient.get_chat_info(msg.chat_id),"is being checked!")
         keydata = None
         message_to_send:str = None
+            # Optionally enrich with chat info (first time only)
+        if not msg._chat_info:
+            msg = parser.enrich_message_with_chat(apiClient, msg, chat_cache)
+
+            print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
+            print(f"   Text: {msg.text}")
+            print(f"   Type: {'Private' if msg.is_private else 'Group'}")
+            print(f"   Username: {msg.sender_username}")
 
         if msg.text == "/start":
-            # welcome message
-            message_to_send = lang.get_text("welcome",user_language)
-            keydata = get_main_page_keydata()
-            this_user , created = User().get_or_create_user(msg.sender_id,msg.chat_id)
-            User().get(msg.chat_id)
             
+            if not sync_mgr.user_exists(msg.sender_id, msg.chat_id):
+                # The user does not exist
+                send_sex_selection_keyboard(msg.chat_id)
+                print("user not found and should create it")
+
+            else:
+                print("user found ",msg.sender_full_name,sync_mgr.get_user(msg.sender_id,msg.chat_id).sex)
+                # The user already exists, so we just send the main page
+                message_to_send = lang.get_text("welcome",user_language)
+                keydata = get_main_page_keydata()
+                pass
+        
+        elif msg.text == lang.get_text("iam_girl", user_language):
+            print("it's a girl")
+            if not sync_mgr.user_exists(msg.sender_id, msg.chat_id):
+                # If user does not exist
+                print("created:",msg.sender_full_name)
+                user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
+                user_mgr.set_sex(user, 2)
+
+        elif msg.text == lang.get_text("iam_boy", user_language):
+            print("it's a boy")
+            if not sync_mgr.user_exists(msg.sender_id, msg.chat_id):
+                # If user does not exist
+                print("created:",apiClient.get_chat_info(msg.chat_id))
+                user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
+                user_mgr.set_sex(user, 1)
+
 
         elif msg.text.strip().lower().startswith(lang.get_text("play_with_stranger", user_language).lower()):
-
             # Play
             play_with_stranger(msg)
 
@@ -295,7 +323,13 @@ def forward_message_to_connected_player(msg:Message, user_language = "fa"):
     #     # Return because this message is a command and should not be sent to the other player
     #     return
     apiClient.send_message(connection_between_players.forward_message(msg.chat_id, msg.text), msg.text)
-    
+
+def send_sex_selection_keyboard(chat_id):
+    key_iam_girl = keypad.create_simple_button(1, lang.get_text("iam_girl", user_language))
+    key_iam_boy = keypad.create_simple_button(1, lang.get_text("iam_boy", user_language))
+    row1 = keypad.create_keypad_row([key_iam_boy, key_iam_girl])
+    keydata = keypad.build_keypad([row1])
+    keypad.send_message_with_keypad(chat_id, lang.get_text("please_select_your_sex", user_language), keydata)
 
 def load_from_local_storage() -> dict:
     try:
