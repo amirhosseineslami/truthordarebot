@@ -6,7 +6,6 @@ import atexit
 from typing import Optional, List, Dict, Any
 from peewee import SqliteDatabase, Model, CharField, IntegerField, BigIntegerField, BooleanField, TextField
 from playhouse.shortcuts import model_to_dict
-
 from models.user import User as RemoteUser
 from database import db as remote_db   # your MySQL connection
 
@@ -35,6 +34,8 @@ class LocalUser(Model):
     blocked_users = TextField(default='[]')
     sex = IntegerField(default=0)
     language = CharField(max_length=10, default='fa')
+    age = IntegerField(null=True)          # Age in years (optional)
+    city = CharField(max_length=100, null=True)  # City name (optional)
 
     # Status
     subscription_date = BigIntegerField(default=0)
@@ -81,6 +82,8 @@ class LocalUser(Model):
                 'last_seen': remote_user.last_seen,
                 'last_synced_at': int(time.time()),
                 'is_dirty': False,
+                'age': remote_user.age,
+                'city': remote_user.city,  
             }
         )
         if not created:
@@ -88,7 +91,7 @@ class LocalUser(Model):
                           'level', 'game_state', 'blocked_users', 'sex', 'language',
                           'subscription_date', 'is_active', 'is_banned',
                           'total_games_played', 'total_wins', 'total_losses',
-                          'total_messages', 'last_seen']:
+                          'total_messages', 'last_seen','age','city']:
                 setattr(local, field, getattr(remote_user, field))
             local.last_synced_at = int(time.time())
             local.is_dirty = False
@@ -106,18 +109,19 @@ class SyncManager:
         self._sync_thread = None
         self._stop_event = threading.Event()
 
+        # Connect local DB and create tables
         local_db.connect()
         local_db.create_tables([LocalUser], safe=True)
 
         if mode == 'online':
             remote_db.create_tables([RemoteUser], safe=True)
-                    # Ensure the remote table exists
 
+        # Ensure remote table exists (create if missing)
         if not RemoteUser.table_exists():
             RemoteUser.create_table()
             print("✅ Created missing 'users' table in remote database")
 
-        # ensure that the column exists in the table
+        # Add any missing columns to remote table (must happen before pulling)
         self._ensure_remote_columns()
 
         if pull_on_start:
@@ -125,6 +129,7 @@ class SyncManager:
 
         atexit.register(self.sync_on_exit)
 
+        
     # -----------------------------------------------------------------
     # User existence and lookup (no creation)
     # -----------------------------------------------------------------
@@ -388,6 +393,20 @@ class UserManager:
             raise ValueError("Language must be 'fa' or 'en'")
         user.language = value
         self.sync.update_user(user)
+
+    def set_age(self, user: LocalUser, age: int):
+        user.age = age
+        self.sync.update_user(user)
+
+    def get_age(self, user: LocalUser) -> Optional[int]:
+        return user.age
+
+    def set_city(self, user: LocalUser, city: str):
+        user.city = city
+        self.sync.update_user(user)
+
+    def get_city(self, user: LocalUser) -> Optional[str]:
+        return user.city
 
     # ---------- game economy ----------
     def add_coins(self, user: LocalUser, amount: int) -> int:

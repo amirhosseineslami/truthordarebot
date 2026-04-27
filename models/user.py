@@ -27,6 +27,8 @@ class User(BaseModel):
     # User Preferences
     sex = IntegerField(default=0)  # 0: unknown, 1: male, 2: female
     language = CharField(max_length=10, default='fa')
+    age = IntegerField(null=True)          # Age in years
+    city = CharField(max_length=100, null=True)   # City name
     
     # Subscription & Status
     subscription_date = BigIntegerField(default=0)

@@ -138,5 +138,12 @@
   "you_skipped_the_question_or_task" : "شما سوال یا کار رو رد کردید. حالا نوبت بازیکن مقابلت هست که انتخاب کنه شجاعت یا حقیقت؟",
   "please_select_your_sex" : "لطفا جنسیت خود را انتخاب کنید:",
   "iam_girl" : "دختر هستم",
-  "iam_boy" : "پسر هستم"
+  "iam_boy" : "پسر هستم",
+  "my_age_is" : "سن من اینه ",
+  "play_with_girl" : "بازی با دختر",
+  "play_with_boy" : "بازی با پسر",
+  "your_age_is_set_now_you_can_play" : "سن شما تنظیم شد. حالا می‌توانید بازی کنید!",
+  "please_select_your_age" : "لطفا سن خود را انتخاب کنید:",
+  "please_input_a_valid_age" : "لطفا یک سن معتبر وارد کنید:",
+  "your_age_is_set_now_you_can_play" : "سن شما تنظیم شد. حالا می‌توانید بازی کنید!"
 }

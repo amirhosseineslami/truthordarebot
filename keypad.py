@@ -79,3 +79,21 @@ class Keypad():
             print(f"Error sending message: {e}")
             return None
 
+    def send_message_with_inline_keypad(self, chat_id, text, inline_keypad_data):
+        """Send a message with an inline keyboard (buttons under the message)."""
+        url = f"https://botapi.rubika.ir/v3/{TOKEN}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "inline_keypad": inline_keypad_data   # key difference: inline_keypad
+        }
+        headers = {'Content-Type': 'application/json'}
+
+        try:
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            print(f"Inline keypad message sent to {chat_id}. Response: {response.text}")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error sending inline keypad message: {e}")
+            return None

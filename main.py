@@ -7,7 +7,7 @@ from language import lang
 from models.offset import Offset
 from connection_manager import ConnectionManager
 import json
-from models.sync_manager import SyncManager, UserManager
+from models.sync_manager import SyncManager, UserManager,LocalUser
 
 import random
 
@@ -30,7 +30,7 @@ user_language = "fa"
 
 # At startup, choose mode (e.g., via environment variable)
 import os
-mode = os.environ.get('BOT_MODE', 'periodic')   # 'online', 'offline', 'periodic'
+mode = os.environ.get('BOT_MODE', 'offline')   # 'online', 'offline', 'periodic'
 interval = int(os.environ.get('SYNC_INTERVAL_HOURS', 2))
 
 sync_mgr = SyncManager(mode=mode, sync_interval_hours=interval, pull_on_start=True)
@@ -117,6 +117,9 @@ def message_handler(parsedMessages: list[Message]):
             print(f"   Text: {msg.text}")
             print(f"   Type: {'Private' if msg.is_private else 'Group'}")
             print(f"   Username: {msg.sender_username}")
+        
+        user = user_mgr.get(msg.sender_id, msg.chat_id)
+
 
         if msg.text == "/start":
             
@@ -130,23 +133,64 @@ def message_handler(parsedMessages: list[Message]):
                 # The user already exists, so we just send the main page
                 message_to_send = lang.get_text("welcome",user_language)
                 keydata = get_main_page_keydata()
-                pass
         
         elif msg.text == lang.get_text("iam_girl", user_language):
             print("it's a girl")
-            if not sync_mgr.user_exists(msg.sender_id, msg.chat_id):
-                # If user does not exist
+            if user == None:
+                # If the user does not exist
+                user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
                 print("created:",msg.sender_full_name)
+
                 user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
                 user_mgr.set_sex(user, 2)
+                user_mgr.set_age(user, -1)
+                user_mgr.set_language(user, "fa")
+                apiClient.send_message(msg.chat_id,lang.get_text("please_select_your_age", user.language))
+
+
+
 
         elif msg.text == lang.get_text("iam_boy", user_language):
             print("it's a boy")
-            if not sync_mgr.user_exists(msg.sender_id, msg.chat_id):
-                # If user does not exist
+            if user == None:
+                # If the user does not exist
+                user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
                 print("created:",apiClient.get_chat_info(msg.chat_id))
-                user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
+
                 user_mgr.set_sex(user, 1)
+                user_mgr.set_age(user,-1)
+                user_mgr.set_language(user, "fa")
+                apiClient.send_message(msg.chat_id, lang.get_text("please_select_your_age", user.language))
+
+        elif user.age == -1:
+            # User's age is invalid
+            age_number = -1
+            try:
+                age_number = int(msg.text.strip())
+            except Exception as e:
+                traceback.print_exc()
+                
+            if age_number<10 or age_number > 99:
+                # age is invalid
+                apiClient.send_message(msg.chat_id, lang.get_text("please_input_a_valid_age",user.language))
+
+            else:
+                # age is valid
+                user_mgr.set_age(user,age_number)
+                message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
+                keydata = get_main_page_keydata()
+
+        
+        elif msg.text.startswith(lang.get_text("my_age_is", user_language)):
+            age = int(msg.text.replace(lang.get_text("my_age_is", user_language), ""))
+            user = sync_mgr.get_user(msg.sender_id, msg.chat_id)
+            
+            if user:
+                user_mgr.set_age(user, age)
+                message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
+                keydata = get_main_page_keydata()
+            else:
+                print("user not found when setting age, this should not happen!")
 
 
         elif msg.text.strip().lower().startswith(lang.get_text("play_with_stranger", user_language).lower()):
@@ -313,6 +357,7 @@ def get_keydata_dare_selected():
     keydata = keypad.build_keypad([row1,row2])
     return keydata
 
+
 def send_keypad_with_message_to_other_player(msg:Message):
     if connection_between_players.is_connected(msg.chat_id):
         # Just send the main options again (truth or dare)
@@ -328,7 +373,7 @@ def send_sex_selection_keyboard(chat_id):
     key_iam_girl = keypad.create_simple_button(1, lang.get_text("iam_girl", user_language))
     key_iam_boy = keypad.create_simple_button(1, lang.get_text("iam_boy", user_language))
     row1 = keypad.create_keypad_row([key_iam_boy, key_iam_girl])
-    keydata = keypad.build_keypad([row1])
+    keydata = keypad.build_keypad([row1],True,one_time_keyboard=True)
     keypad.send_message_with_keypad(chat_id, lang.get_text("please_select_your_sex", user_language), keydata)
 
 def load_from_local_storage() -> dict:
