@@ -150,6 +150,9 @@ def handle_one_message(msg: Message):
 
             user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
             user_mgr.set_sex(user, 2)
+            user_mgr.set_first_name(user,msg.sender_first_name)
+            user_mgr.set_last_name(user,msg.sender_last_name)
+            user_mgr.set_username(user,msg.sender_username)
             user_mgr.set_age(user, -1)
             user_mgr.set_language(user, "fa")
             apiClient.send_message(msg.chat_id,lang.get_text("please_select_your_age", user.language))
@@ -160,8 +163,10 @@ def handle_one_message(msg: Message):
             # If the user does not exist
             user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
             print("created:",apiClient.get_chat_info(msg.chat_id))
-
             user_mgr.set_sex(user, 1)
+            user_mgr.set_first_name(user,msg.sender_first_name)
+            user_mgr.set_last_name(user,msg.sender_last_name)
+            user_mgr.set_username(user,msg.sender_username)
             user_mgr.set_age(user,-1)
             user_mgr.set_language(user, "fa")
             apiClient.send_message(msg.chat_id, lang.get_text("please_select_your_age", user.language))
@@ -273,6 +278,10 @@ def handle_one_message(msg: Message):
 
             keydata = get_keydata_dare_selected()
 
+    elif msg.text == lang.get_text("back_to_main_menu",user_language):
+        message_to_send = lang.get_text("welcome_back_to_main_menu", user_language)
+        keypad.send_message_with_keypad(msg.chat_id, message_to_send, get_main_page_keydata())
+
 
     elif msg.text in [lang.get_text("key_answered_the_question", user_language), lang.get_text("key_did_the_task", user_language)]:
         # Now it's the other player's turn to choose truth or dare, so we just send the main options again
@@ -281,13 +290,12 @@ def handle_one_message(msg: Message):
         message_to_send = lang.get_text("you_answered_the_question_now_its_other_players_turn", user_language)
 
     elif msg.text == lang.get_text("get_coin", user_language):
-        message_to_send = lang.get_text("you_can_get_coins_by_inviting_friends_and_your_invite_code_is" + msg.chat_id + "\n "+ lang.get_text("you_can_also_buy_premium_account"), user_language)
-        buy_premium_account_keydata(msg)
+        coin_status_pressed(msg, user)
 
     elif msg.text == lang.get_text("buy_premium_account", user_language):
         message_to_send = lang.get_text("premium_account_benefits_are_this", user_language) + "\n" + lang.get_text("premium_account_benefits_list", user_language)
         message_to_send += "\n" + lang.get_text("to_buy_premium_account_press_the_button_below", user.language)
-        buy_premium_account_keydata(msg)
+        buy_premium_account_keydata(msg,user)
     
     # Forward the message if there's any connection for this user
     elif connection_between_players.is_connected(msg.chat_id):
@@ -329,6 +337,27 @@ def handle_one_message(msg: Message):
         except Exception as e:
             print(f"Error in /check: {traceback.format_exception(e)}")
             apiClient.send_message(msg.chat_id, "❌ خطایی رخ داد. لطفاً بعداً تلاش کنید.")
+
+    elif msg.text.startswith("invite"):
+        if user.level != 1:
+            # The user is invited before!
+            apiClient.send_message(msg.chat_id, lang.get_text("you_are_invited_one_time_before", user.language))
+            return
+        
+        invite_code = msg.text.replace("invite", "").strip()
+        if invite_code:
+            inviter_user = user_mgr.get(chat_id=invite_code)
+            if inviter_user and invite_code != msg.chat_id:
+                # Add coins to both inviter and invitee
+                user_mgr.add_coins(inviter_user, 5)
+                user_mgr.add_coins(user, 5)
+                user_mgr.set_level(user, user.level+1)  # Mark the user as having been invited
+                apiClient.send_message(msg.chat_id, f"🎉 شما با موفقیت دعوت شدید! 5 سکه به شما و دعوت‌کننده اضافه شد.")
+                apiClient.send_message(inviter_user.chat_id, f"🎉 کاربر جدیدی با کد دعوت شما ثبت‌نام کرد! 5 سکه به شما اضافه شد.")
+            else:
+                apiClient.send_message(msg.chat_id, "❌ کد دعوت نامعتبر است.")
+        else:
+            apiClient.send_message(msg.chat_id, "❌ لطفاً یک کد دعوت معتبر وارد کنید.")
 
     if message_to_send != None and keydata != None:
         keypad.send_message_with_keypad(msg.chat_id,message_to_send,keydata)
@@ -475,10 +504,19 @@ def send_sex_selection_keyboard(chat_id):
     keydata = keypad.build_keypad([row1],True,one_time_keyboard=True)
     keypad.send_message_with_keypad(chat_id, lang.get_text("please_select_your_sex", user_language), keydata)
 
-def buy_premium_account_keydata(msg):
-    products_kb = get_products_keypad()
+def buy_premium_account_keydata(msg,user):
+    products_kb = get_products_keypad(user)
     keypad.send_message_with_keypad(msg.chat_id, "🛒 محصولات:", products_kb)
 
+def coin_status_pressed(msg:Message,user:LocalUser):
+    message_to_send = lang.get_text("your_coin_number",user.language) + user.coin
+    message_to_send += lang.get_text("you_can_get_coins_by_inviting_friends_and_your_invite_code_is", user.language)
+    message_to_send += "\n invite"+ msg.chat_id
+    key_buy_premium = keypad.create_simple_button("1023",lang.get_text(lang.get_text("buy_premium_account"),user.language))
+    key_back_to_main_menu = keypad.create_simple_button(1,lang.get_text("back_to_main_menu",user.language))
+    row1 = keypad.create_keypad_row([key_buy_premium])
+    row2 = keypad.create_keypad_row([key_back_to_main_menu])
+    keypad.send_message_with_keypad(msg.chat_id, message_to_send, keypad.build_keypad([row1, row2]))
 
 def load_from_local_storage() -> dict:
     try:
@@ -490,12 +528,14 @@ def load_from_local_storage() -> dict:
     
 
 # Product inline keypad builder
-def get_products_keypad():
+def get_products_keypad(user:LocalUser):
     kp = Keypad()
     rows = []
     for pid, info in PaymentManager.PRODUCTS.items():
         btn = kp.create_simple_button(pid, f"{info['name']} - {info['amount']:,} تومان")
         rows.append(kp.create_keypad_row([btn]))
+
+    rows.append(kp.create_keypad_row([kp.create_simple_button(314,lang.get_text("back_to_main_menu",user.language))]))
     return kp.build_keypad(rows)
 
 

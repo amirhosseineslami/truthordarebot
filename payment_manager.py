@@ -13,11 +13,38 @@ class PaymentManager:
         self._polling_threads = {}
         self._stop_polling = {}
 
-    # Product catalog
+        
     PRODUCTS = {
-        'coins_50': {'name': '50 سکه', 'amount': 99000, 'coins': 50}    ,
-        'coins_100': {'name': '100 سکه', 'amount': 100000, 'coins': 100}    ,
-        'coins_500': {'name': '500 سکه', 'amount': 400000, 'coins': 500}
+        'coins_5': {
+            'name': '🧩 پک شروع (5 سکه) (تخفیف: 4,000 تومان)',
+            'en': '🧩 Starter Pack (5 coins) (save 4,000 Toman)',
+            'amount': 9900,
+            'coins': 5
+        },
+        'coins_50': {
+            'name': '⭐ استاندارد (50 سکه)',
+            'en': '⭐ Standard (50 coins)',
+            'amount': 139000,
+            'coins': 50
+        },
+        'coins_100': {
+            'name': '🔥 بیشترین فروش (100 سکه) (تخفیف: 89,000 تومان)',
+            'en': '🔥 Best Seller (100 coins) (save 89,000 Toman)',
+            'amount': 189000,
+            'coins': 100
+        },
+        'coins_250': {
+            'name': '🚀 پک حرفه ای (250 سکه) (تخفیف: 296,000 تومان)',
+            'en': '🚀 Pro Pack (250 coins) (save 296,000 Toman)',
+            'amount': 399000,
+            'coins': 250
+        },
+        'coins_600': {
+            'name': '👑 پک اسطوره ای (600 سکه) (تخفیف: 769,000 تومان)',
+            'en': '👑 Legend Pack (600 coins) (save 769,000 Toman)',
+            'amount': 899000,
+            'coins': 600
+        }
     }
 
     def get_products(self):

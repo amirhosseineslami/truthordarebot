@@ -8,7 +8,7 @@
   "stranger" : "درحال یافتن کاربر...",
   "play_with_stranger" : "بازی با ناشناس",
   "play_with_friend" : "بازی با دوستان",
-  "get_coin" : "دریافت سکه",
+  "get_coin" : "سکه🪙",
   "cancel_the_search" : "لغو جست و جو",
   "you_are_now_connected_to_somebody" : "یه بازیکن واست پیدا کردم از گزینه های منو شجاعت یا حقیقت رو انتخاب کن.",
   "you_were_in_queue_and_now_connected_to_somebody" : "یه بازیکن واست پیدا کردم. باید انتخاب کنه ترجیحش کدومه شجاعت یا حقیقت؟ تا انتخاب میکنه میتونی باهاش چت هم بکنی!",
@@ -145,9 +145,12 @@
   "please_select_your_age" : "لطفا سن خود را انتخاب کنید:",
   "please_input_a_valid_age" : "لطفا یک سن معتبر وارد کنید:",
   "your_age_is_set_now_you_can_play" : "سن شما تنظیم شد. حالا می‌توانید بازی کنید!",
-  "buy_premium_account" : "خرید حساب ویژه",
+  "buy_premium_account" : "خرید سکه",
   "to_buy_premium_account_press_the_button_below" : "برای خرید حساب ویژه روی دکمه زیر کلیک کنید",
   "premium_account_benefits_are_this" : "مزایای حساب ویژه اینه",
   "premium_account_benefits_list" : "1. تعیین جنسیت بازیکن رقیب \n2. بازی نامحدود بدون نیاز به خرج سکه\n3. مشاهده نام بازیکن رقیب\nو امکانات دیگری که به زودی اضافه خواهند شد.",
-  "back_to_main_menu" : "برگشت به منوی اصلی"
+  "back_to_main_menu" : "برگشت به منوی اصلی",
+  "you_can_get_coins_by_inviting_friends_and_your_invite_code_is" : "با دعوت دوستات میتونی سکه جایزه بگیری. برای این کار این کد رو بده دوستت تا 5 تا سکه از طرف تو جایزه بگیره تو هم با دعوت از دوستت 5 سکه جایز میگیری. \n کد دعوت: ",
+  "welcome_back_to_main_menu" : "به منوی اصلی خوش برگشتید!",
+  "you_are_invited_one_time_before" : "شما قبلا یکبار دعوت شده اید و دیگر نمی توانید از کد دعوت را استفاده کنید."
 }
