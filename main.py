@@ -2,7 +2,7 @@ from botApiClient import BotApiClient
 from keypad import Keypad
 import time
 import traceback
-from rubikaMessageParser import RubikaParser, Chat, Message
+from rubikaMessageParser import CallbackQuery, RubikaParser, Chat, Message
 from language import lang
 from models.offset import Offset
 from connection_manager import ConnectionManager
@@ -38,6 +38,20 @@ sync_mgr.start_periodic_sync()   # only does something in 'periodic' mode
 user_mgr = UserManager(sync_mgr)
 
 chat_cache = {}   # simple cache to avoid repeated API calls
+
+#payment manager
+from payment_manager import PaymentManager
+from models.payment import Payment
+send_message_func = lambda chat_id, text: apiClient.send_message(chat_id, text)  # adapt to your send method
+payment_mgr = PaymentManager(sync_mgr, user_mgr, send_message_func)
+
+# Build reverse mapping: display_name -> product_id (once, outside the loop)
+# Build reverse mapping: button_label -> product_id
+PRODUCT_BUTTON_TO_ID = {}
+for pid, info in PaymentManager.PRODUCTS.items():
+    button_label = f"{info['name']} - {info['amount']:,} تومان"
+    PRODUCT_BUTTON_TO_ID[button_label] = pid
+
 
 def main():
 
@@ -102,179 +116,263 @@ def main():
         print(time.time())
         time.sleep(0.3)
 
-def message_handler(parsedMessages: list[Message]):
+def message_handler(parsed_response: list[Message]):
     global user_language
+    for item in parsed_response:
+        if isinstance(item, CallbackQuery):
+            handle_callback(item)
+        else:
+            handle_one_message(item)
 
-    for msg in parsedMessages:
-        print(apiClient.get_chat_info(msg.chat_id),"is being checked!")
-        keydata = None
-        message_to_send:str = None
-            # Optionally enrich with chat info (first time only)
-        if not msg._chat_info:
-            msg = parser.enrich_message_with_chat(apiClient, msg, chat_cache)
+def handle_one_message(msg: Message):
+    print(apiClient.get_chat_info(msg.chat_id),"is being checked!")
+    keydata = None
+    message_to_send:str = None
+        # Optionally enrich with chat info (first time only)
+    if not msg._chat_info:
+        msg = parser.enrich_message_with_chat(apiClient, msg, chat_cache)
 
-            print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
-            print(f"   Text: {msg.text}")
-            print(f"   Type: {'Private' if msg.is_private else 'Group'}")
-            print(f"   Username: {msg.sender_username}")
+        print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
+        print(f"   Text: {msg.text}")
+        print(f"   Type: {'Private' if msg.is_private else 'Group'}")
+        print(f"   Username: {msg.sender_username}")
+    
+    user = user_mgr.get(msg.sender_id, msg.chat_id)
+
+
+
+    if msg.text == lang.get_text("iam_girl", user_language):
+        print("it's a girl")
+        if user == None:
+            # If the user does not exist
+            user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
+            print("created:",msg.sender_full_name)
+
+            user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
+            user_mgr.set_sex(user, 2)
+            user_mgr.set_age(user, -1)
+            user_mgr.set_language(user, "fa")
+            apiClient.send_message(msg.chat_id,lang.get_text("please_select_your_age", user.language))
+
+    elif msg.text == lang.get_text("iam_boy", user_language):
+        print("it's a boy")
+        if user == None:
+            # If the user does not exist
+            user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
+            print("created:",apiClient.get_chat_info(msg.chat_id))
+
+            user_mgr.set_sex(user, 1)
+            user_mgr.set_age(user,-1)
+            user_mgr.set_language(user, "fa")
+            apiClient.send_message(msg.chat_id, lang.get_text("please_select_your_age", user.language))
+
+    elif msg.text == "/start" or user == None:
         
-        user = user_mgr.get(msg.sender_id, msg.chat_id)
+        if user == None:
+            # The user does not exist
+            send_sex_selection_keyboard(msg.chat_id)
+            print("user not found and should create it")
 
+        else:
+            print("user found ",msg.sender_full_name,sync_mgr.get_user(msg.sender_id,msg.chat_id).sex)
+            # The user already exists, so we just send the main page
+            message_to_send = lang.get_text("welcome",user_language)
+            keydata = get_main_page_keydata()
+    
 
-        if msg.text == "/start":
+    elif user.age == -1:
+        # User's age is invalid
+        age_number = -1
+        try:
+            age_number = int(msg.text.strip())
+        except Exception as e:
+            traceback.print_exc()
             
-            if not sync_mgr.user_exists(msg.sender_id, msg.chat_id):
-                # The user does not exist
-                send_sex_selection_keyboard(msg.chat_id)
-                print("user not found and should create it")
+        if age_number<10 or age_number > 99:
+            # age is invalid
+            apiClient.send_message(msg.chat_id, lang.get_text("please_input_a_valid_age",user.language))
 
-            else:
-                print("user found ",msg.sender_full_name,sync_mgr.get_user(msg.sender_id,msg.chat_id).sex)
-                # The user already exists, so we just send the main page
-                message_to_send = lang.get_text("welcome",user_language)
-                keydata = get_main_page_keydata()
-        
-        elif msg.text == lang.get_text("iam_girl", user_language):
-            print("it's a girl")
-            if user == None:
-                # If the user does not exist
-                user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
-                print("created:",msg.sender_full_name)
-
-                user = user_mgr.get_or_create(msg.sender_id, msg.chat_id,username=msg.sender_username, first_name=msg.sender_first_name, last_name=msg.sender_last_name)
-                user_mgr.set_sex(user, 2)
-                user_mgr.set_age(user, -1)
-                user_mgr.set_language(user, "fa")
-                apiClient.send_message(msg.chat_id,lang.get_text("please_select_your_age", user.language))
-
-
-
-
-        elif msg.text == lang.get_text("iam_boy", user_language):
-            print("it's a boy")
-            if user == None:
-                # If the user does not exist
-                user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
-                print("created:",apiClient.get_chat_info(msg.chat_id))
-
-                user_mgr.set_sex(user, 1)
-                user_mgr.set_age(user,-1)
-                user_mgr.set_language(user, "fa")
-                apiClient.send_message(msg.chat_id, lang.get_text("please_select_your_age", user.language))
-
-        elif user.age == -1:
-            # User's age is invalid
-            age_number = -1
-            try:
-                age_number = int(msg.text.strip())
-            except Exception as e:
-                traceback.print_exc()
-                
-            if age_number<10 or age_number > 99:
-                # age is invalid
-                apiClient.send_message(msg.chat_id, lang.get_text("please_input_a_valid_age",user.language))
-
-            else:
-                # age is valid
-                user_mgr.set_age(user,age_number)
-                message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
-                keydata = get_main_page_keydata()
-
-        
-        elif msg.text.startswith(lang.get_text("my_age_is", user_language)):
-            age = int(msg.text.replace(lang.get_text("my_age_is", user_language), ""))
-            user = sync_mgr.get_user(msg.sender_id, msg.chat_id)
-            
-            if user:
-                user_mgr.set_age(user, age)
-                message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
-                keydata = get_main_page_keydata()
-            else:
-                print("user not found when setting age, this should not happen!")
-
-
-        elif msg.text.strip().lower().startswith(lang.get_text("play_with_stranger", user_language).lower()):
-            # Play
-            play_with_stranger(msg)
-
-        elif msg.text == lang.get_text("cancel_the_search", user_language):
-            # canceled the search
-            message_to_send = lang.get_text("search_is_canceled_by_user", user_language)
+        else:
+            # age is valid
+            user_mgr.set_age(user,age_number)
+            message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
             keydata = get_main_page_keydata()
 
-        elif msg.text == lang.get_text("disconnect_the_connection", user_language):
-
-            # Notify the current user about disconnection
-            message_to_send = lang.get_text("your_disconnect_request_is_accepted", user_language)
+    
+    elif msg.text.startswith(lang.get_text("my_age_is", user_language)):
+        age = int(msg.text.replace(lang.get_text("my_age_is", user_language), ""))
+        user = sync_mgr.get_user(msg.sender_id, msg.chat_id)
+        
+        if user:
+            user_mgr.set_age(user, age)
+            message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
             keydata = get_main_page_keydata()
+        else:
+            print("user not found when setting age, this should not happen!")
 
-            # Notify the opposite user about disconnection status
-            keypad.send_message_with_keypad(connection_between_players.forward_message(msg.chat_id, ""), lang.get_text("other_user_disconnected"),get_main_page_keydata())
 
-            # Remove the connection between these 2 players
-            connection_between_players.disconnect(msg.chat_id)
+    elif msg.text.strip().lower().startswith(lang.get_text("play_with_stranger", user_language).lower()):
+        # Play
+        play_with_stranger(msg)
 
-        elif msg.text == lang.get_text("key_truth"):
-            keydata = get_keydata_truth_selected()
+    elif msg.text == lang.get_text("cancel_the_search", user_language):
+        # canceled the search
+        message_to_send = lang.get_text("search_is_canceled_by_user", user_language)
+        keydata = get_main_page_keydata()
+
+    elif msg.text == lang.get_text("disconnect_the_connection", user_language):
+
+        # Notify the current user about disconnection
+        message_to_send = lang.get_text("your_disconnect_request_is_accepted", user_language)
+        keydata = get_main_page_keydata()
+
+        # Notify the opposite user about disconnection status
+        keypad.send_message_with_keypad(connection_between_players.forward_message(msg.chat_id, ""), lang.get_text("other_user_disconnected"),get_main_page_keydata())
+
+        # Remove the connection between these 2 players
+        connection_between_players.disconnect(msg.chat_id)
+
+    elif msg.text == lang.get_text("key_truth"):
+        keydata = get_keydata_truth_selected()
+        message_to_send = lang.get_text("you_selected_truth", user_language)
+        random_truth_question = lang.get_text("truth_questions")
+        message_to_send += "\n" + random_truth_question
+        message_to_send_to_oponent = lang.get_text("other_player_question_is_this") + random_truth_question
+        apiClient.send_message(connection_between_players.forward_message(msg.chat_id,""),message_to_send_to_oponent)
+
+    elif msg.text == lang.get_text("key_dare"):
+        keydata = get_keydata_dare_selected()
+        message_to_send = lang.get_text("you_selected_dare", user_language)
+        random_dare_task = lang.get_text("dare_tasks", user_language)
+        message_to_send = "\n" + random_dare_task
+        message_to_send_to_oponent = lang.get_text("other_player_task_is_this") + random_dare_task
+        apiClient.send_message(connection_between_players.forward_message(msg.chat_id,""),message_to_send_to_oponent)
+
+
+
+    elif msg.text == lang.get_text("key_skip_the_question", user_language):
+        # Just send a new question or task without changing the type (truth or dare)
+        if connection_between_players.is_connected(msg.chat_id):
+            # Check the type of the current question (truth or dare) and send a new one of the same type
             message_to_send = lang.get_text("you_selected_truth", user_language)
             random_truth_question = lang.get_text("truth_questions")
             message_to_send += "\n" + random_truth_question
-            message_to_send_to_oponent = lang.get_text("other_player_question_is_this") + random_truth_question
+            message_to_send_to_oponent = lang.get_text("other_player_skipped_new_question_is_this") + random_truth_question
             apiClient.send_message(connection_between_players.forward_message(msg.chat_id,""),message_to_send_to_oponent)
-
-        elif msg.text == lang.get_text("key_dare"):
-            keydata = get_keydata_dare_selected()
+            keydata = get_keydata_truth_selected()
+    
+    elif msg.text == lang.get_text("key_skip_the_task", user_language):
+        # Just send a new question or task without changing the type (truth or dare)
+        if connection_between_players.is_connected(msg.chat_id):
+            # Check the type of the current question (truth or dare) and send a new one of the same type
             message_to_send = lang.get_text("you_selected_dare", user_language)
             random_dare_task = lang.get_text("dare_tasks", user_language)
             message_to_send = "\n" + random_dare_task
-            message_to_send_to_oponent = lang.get_text("other_player_task_is_this") + random_dare_task
+            message_to_send_to_oponent = lang.get_text("other_player_skipped_new_task_is_this") + random_dare_task
             apiClient.send_message(connection_between_players.forward_message(msg.chat_id,""),message_to_send_to_oponent)
 
+            keydata = get_keydata_dare_selected()
 
 
-        elif msg.text == lang.get_text("key_skip_the_question", user_language):
-            # Just send a new question or task without changing the type (truth or dare)
-            if connection_between_players.is_connected(msg.chat_id):
-                # Check the type of the current question (truth or dare) and send a new one of the same type
-                message_to_send = lang.get_text("you_selected_truth", user_language)
-                random_truth_question = lang.get_text("truth_questions")
-                message_to_send += "\n" + random_truth_question
-                message_to_send_to_oponent = lang.get_text("other_player_skipped_new_question_is_this") + random_truth_question
-                apiClient.send_message(connection_between_players.forward_message(msg.chat_id,""),message_to_send_to_oponent)
-                keydata = get_keydata_truth_selected()
-        
-        elif msg.text == lang.get_text("key_skip_the_task", user_language):
-            # Just send a new question or task without changing the type (truth or dare)
-            if connection_between_players.is_connected(msg.chat_id):
-                # Check the type of the current question (truth or dare) and send a new one of the same type
-                message_to_send = lang.get_text("you_selected_dare", user_language)
-                random_dare_task = lang.get_text("dare_tasks", user_language)
-                message_to_send = "\n" + random_dare_task
-                message_to_send_to_oponent = lang.get_text("other_player_skipped_new_task_is_this") + random_dare_task
-                apiClient.send_message(connection_between_players.forward_message(msg.chat_id,""),message_to_send_to_oponent)
+    elif msg.text in [lang.get_text("key_answered_the_question", user_language), lang.get_text("key_did_the_task", user_language)]:
+        # Now it's the other player's turn to choose truth or dare, so we just send the main options again
+        send_keypad_with_message_to_other_player(msg)
+        keydata = get_keydata_player_connected()
+        message_to_send = lang.get_text("you_answered_the_question_now_its_other_players_turn", user_language)
 
-                keydata = get_keydata_dare_selected()
+    elif msg.text == lang.get_text("get_coin", user_language):
+        message_to_send = lang.get_text("you_can_get_coins_by_inviting_friends_and_your_invite_code_is" + msg.chat_id + "\n "+ lang.get_text("you_can_also_buy_premium_account"), user_language)
+        buy_premium_account_keydata(msg)
+
+    elif msg.text == lang.get_text("buy_premium_account", user_language):
+        message_to_send = lang.get_text("premium_account_benefits_are_this", user_language) + "\n" + lang.get_text("premium_account_benefits_list", user_language)
+        message_to_send += "\n" + lang.get_text("to_buy_premium_account_press_the_button_below", user.language)
+        buy_premium_account_keydata(msg)
+    
+    # Forward the message if there's any connection for this user
+    elif connection_between_players.is_connected(msg.chat_id):
+        forward_message_to_connected_player(msg)
 
 
-        elif msg.text in [lang.get_text("key_answered_the_question", user_language), lang.get_text("key_did_the_task", user_language)]:
-            # Now it's the other player's turn to choose truth or dare, so we just send the main options again
-            send_keypad_with_message_to_other_player(msg)
-            keydata = get_keydata_player_connected()
-            message_to_send = lang.get_text("you_answered_the_question_now_its_other_players_turn", user_language)
+    # Inside message handler
+    elif msg.text == "/buy":
+        products_kb = get_products_keypad()
+        keypad.send_message_with_keypad(msg.chat_id, "🛒 محصولات:", products_kb)
 
-        
-        # Forward the message if there's any connection for this user
-        elif connection_between_players.is_connected(msg.chat_id):
-            forward_message_to_connected_player(msg)
-
-
+    # Inside message handler:
+    elif msg.text in PRODUCT_BUTTON_TO_ID:
+        product_id = PRODUCT_BUTTON_TO_ID[msg.text]
+        print("Creating purchase for product:", product_id)
+        user = user_mgr.get_or_create(msg.sender_id, msg.chat_id)
+        result = payment_mgr.create_purchase(user, msg.chat_id, product_id)
+        if result['success']:
+            apiClient.send_message(msg.chat_id, f"💰 مبلغ {result['amount']:,} تومان\n🔗 برای پرداخت کلیک کنید:\n{result['payment_link']}\n\n⏳ لینک ۳۰ دقیقه معتبر است.\nبعد از پرداخت /check را بزنید یا منتظر بمانید.")
+        else:
+            apiClient.send_message(msg.chat_id, f"❌ خطا: {result.get('error')}")
         # Check if there is any keypad to send
         if keydata != None and message_to_send:
             keypad.send_message_with_keypad(msg.chat_id, message_to_send, keydata)
             keydata = None
 
+
+    elif msg.text == "/check":
+        try:
+            res = payment_mgr.manual_check(msg.sender_id)
+            if res.get('success'):
+                if res.get('already_paid'):
+                    apiClient.send_message(msg.chat_id, "✅ پرداخت قبلاً تأیید شده است.")
+                else:
+                    apiClient.send_message(msg.chat_id, "✅ پرداخت با موفقیت تأیید شد! از سرویس استفاده کنید.")
+            else:
+                error = res.get('error', 'خطای ناشناخته')
+                apiClient.send_message(msg.chat_id, f"❌ {error}\nلطفاً بعد از انجام پرداخت دوباره /check را بزنید.")
+        except Exception as e:
+            print(f"Error in /check: {traceback.format_exception(e)}")
+            apiClient.send_message(msg.chat_id, "❌ خطایی رخ داد. لطفاً بعداً تلاش کنید.")
+
+    if message_to_send != None and keydata != None:
+        keypad.send_message_with_keypad(msg.chat_id,message_to_send,keydata)
+        message_to_send = None
+        keydata = None
         
 
+def handle_callback(callback: CallbackQuery):
+    product_id = callback.data   # This will be "premium_1m", "coins_100", etc.
+    chat_id = callback.chat_id
+    user_id = callback.user_id
+
+    if product_id in PaymentManager.PRODUCTS:
+        user = user_mgr.get_or_create(user_id, chat_id)
+        result = payment_mgr.create_purchase(user, chat_id, product_id)
+        if result['success']:
+            # Send payment link (use send_message, not inline keypad)
+            apiClient.send_message(chat_id, f"💰 مبلغ {result['amount']:,} تومان\n🔗 برای پرداخت کلیک کنید:\n{result['payment_link']}\n\n⏳ لینک ۳۰ دقیقه معتبر است.\nبعد از پرداخت /check را بزنید.")
+        else:
+            apiClient.send_message(chat_id, f"❌ خطا: {result.get('error')}")
+    else:
+        apiClient.send_message(chat_id, "❌ محصول نامعتبر است.")
+        
+
+def manual_check(self, user_id: str) -> dict:
+    """Called when user types /check"""
+    # Find the most recent pending payment for this user
+    try:
+        from models.payment import Payment
+        payment = Payment.select().where(
+            (Payment.user_id == user_id) & (Payment.status == 'pending')
+        ).order_by(Payment.created_at.desc()).first()
+    except Exception as e:
+        return {'success': False, 'error': f'Database error: {e}'}
+
+    if not payment:
+        return {'success': False, 'error': 'No pending payment found'}
+
+    result = Payment.verify_payment(payment.track_id)
+    if result.get('success') and not result.get('already_paid'):
+        # Grant the purchased items
+        self._grant_purchase(payment)
+        self._stop_polling_for_user(user_id)
+    return result
 
 def play_with_stranger(msg:Message):
 
@@ -312,9 +410,10 @@ def get_main_page_keydata():
     key_play_with_boy = keypad.create_simple_button(3, lang.get_text("play_with_boy", user_language))
     key_play_with_friend = keypad.create_simple_button(5, lang.get_text("play_with_friend",user_language))
     key_get_coin = keypad.create_simple_button(4, lang.get_text("get_coin"))
+    key_buy_premium_account = keypad.create_simple_button(6, lang.get_text("buy_premium_account"))
     row1 = keypad.create_keypad_row([key_play_with_stranger])
     row2 = keypad.create_keypad_row([key_play_with_girl, key_play_with_boy])
-    row3 = keypad.create_keypad_row([key_get_coin])
+    row3 = keypad.create_keypad_row([key_get_coin, key_buy_premium_account])
     keydata = keypad.build_keypad([row1,row2, row3])
     return keydata
 
@@ -376,6 +475,11 @@ def send_sex_selection_keyboard(chat_id):
     keydata = keypad.build_keypad([row1],True,one_time_keyboard=True)
     keypad.send_message_with_keypad(chat_id, lang.get_text("please_select_your_sex", user_language), keydata)
 
+def buy_premium_account_keydata(msg):
+    products_kb = get_products_keypad()
+    keypad.send_message_with_keypad(msg.chat_id, "🛒 محصولات:", products_kb)
+
+
 def load_from_local_storage() -> dict:
     try:
         with open(LOCAL_SAVE_NAME, 'r') as f:
@@ -384,6 +488,16 @@ def load_from_local_storage() -> dict:
         traceback.print_exc()
         return None
     
+
+# Product inline keypad builder
+def get_products_keypad():
+    kp = Keypad()
+    rows = []
+    for pid, info in PaymentManager.PRODUCTS.items():
+        btn = kp.create_simple_button(pid, f"{info['name']} - {info['amount']:,} تومان")
+        rows.append(kp.create_keypad_row([btn]))
+    return kp.build_keypad(rows)
+
 
 
 if __name__ == "__main__" :

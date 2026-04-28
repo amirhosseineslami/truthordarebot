@@ -97,6 +97,14 @@ class LocalUser(Model):
             local.is_dirty = False
             local.save()
         return local
+    
+    def extend_subscription(self, days: int):
+        """Extend subscription by days (for local user)"""
+        import time
+        current = self.subscription_date if self.subscription_date > int(time.time()) else int(time.time())
+        self.subscription_date = current + (days * 86400)
+        self.is_dirty = True   # mark for sync
+        self.save()
 
 
 # -------------------------------------------------------------------

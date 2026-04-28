@@ -29,6 +29,16 @@ class ChatType(Enum):
 # Data Models
 # ------------------------------
 @dataclass
+class CallbackQuery:
+    callback_id: str
+    user_id: str
+    chat_id: str
+    message_id: str
+    data: str          # This is the button's id
+    from_user: dict
+    chat_instance: str
+
+@dataclass
 class Chat:
     """Complete chat information (user, group, channel)"""
     chat_id: str
@@ -216,6 +226,18 @@ class RubikaParser:
 
     @staticmethod
     def _parse_single_update(update: Dict[str, Any]) -> Optional[Message]:
+        if 'callback_query' in update:
+            cq = update['callback_query']
+            return CallbackQuery(
+                callback_id=cq.get('id', ''),
+                user_id=cq.get('from', {}).get('id', ''),
+                chat_id=cq.get('message', {}).get('chat', {}).get('id', ''),
+                message_id=cq.get('message', {}).get('message_id', ''),
+                data=cq.get('data', ''),
+                from_user=cq.get('from', {}),
+                chat_instance=cq.get('chat_instance', '')
+            )
+
         try:
             update_type = update.get('type')
             chat_id = update.get('chat_id')

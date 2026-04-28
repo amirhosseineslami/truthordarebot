@@ -13,7 +13,6 @@ DB_CONFIG = {
 db = MySQLDatabase(**DB_CONFIG)
 
 def init_db(create_tables=True):
-    """Initialize database connection"""
     try:
         db.connect()
         print("✅ Database connected")
@@ -21,9 +20,9 @@ def init_db(create_tables=True):
         if create_tables:
             from models.user import User
             from models.offset import Offset
+            from models.payment import Payment   # ✅ moved here
             
-            # Create tables if they don't exist
-            db.create_tables([User, Offset], safe=True)
+            db.create_tables([User, Offset, Payment], safe=True)
             print("✅ Tables created/verified")
         
         return db
@@ -32,7 +31,6 @@ def init_db(create_tables=True):
         raise
 
 def close_db():
-    """Close database connection"""
     if not db.is_closed():
         db.close()
         print("✅ Database closed")
