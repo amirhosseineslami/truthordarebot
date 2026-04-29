@@ -111,14 +111,10 @@ class PaymentManager:
             return
         prod = self.PRODUCTS.get(payment.product_id, {})
         if payment.product_id.startswith('coins'):
-            user.coin += payment.product_quantity
+            self.user_mgr.add_coins(user, payment.product_quantity)
             self.sync.update_user(user)
         elif payment.product_id.startswith('premium'):
             self.user_mgr.extend_subscription(user,payment.product_quantity)
-            # Bonus coins for 3‑month
-            if payment.product_id == 'premium_3m':
-                user.coin += 100
-                self.sync.update_user(user)
 
     @classmethod
     def get_pending_payments(cls, user_id: str = None):

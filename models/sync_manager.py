@@ -105,6 +105,12 @@ class LocalUser(Model):
         self.subscription_date = current + (days * 86400)
         self.is_dirty = True   # mark for sync
         self.save()
+            
+    @property
+    def is_subscribed(self) -> bool:
+        """Check if user has active subscription"""
+        import time
+        return self.subscription_date > int(time.time())
 
 
 # -------------------------------------------------------------------

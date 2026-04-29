@@ -1,8 +1,11 @@
 import time
 import requests
+import os
 
 MERCHANT_ID = "zibal"               # Your Zibal merchant ID
-CALLBACK_URL = "https://yourdomain.com/callback"   # Optional (not used for polling)
+MERCHANT_ID = os.environ.get("MERCHANT_ID", "zibal" )
+
+CALLBACK_URL = "https://botribazi.rozsite.ir/page/callback"   # Optional (not used for polling)
 
 def create_zibal_payment(amount_tomans: int):
     """
