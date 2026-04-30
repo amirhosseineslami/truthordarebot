@@ -1,3 +1,4 @@
+from email import message
 from botApiClient import BotApiClient
 from keypad import Keypad
 import time
@@ -8,8 +9,9 @@ from models.offset import Offset
 from connection_manager import ConnectionManager
 import json
 from models.sync_manager import SyncManager, UserManager,LocalUser
-
+from flood_manager import flood_manager
 import random
+import traceback
 
 
 LOCAL_SAVE_NAME = "offset.json"
@@ -38,7 +40,9 @@ sync_mgr.start_periodic_sync()   # only does something in 'periodic' mode
 user_mgr = UserManager(sync_mgr)
 
 chat_cache = {}   # simple cache to avoid repeated API calls
-CODE_INVITATION_NUMBER = 5
+COIN_INVITATION_NUMBER = 3
+CHAT_ID_ADMIN = os.environ.get('CHAT_ID_ADMIN', None)
+CHAT_ID_GROUP = os.environ.get('CHAT_ID_GROUP')
 
 #payment manager
 from payment_manager import PaymentManager
@@ -122,7 +126,118 @@ def message_handler(parsed_response: list[Message]):
     for item in parsed_response:
         handle_one_message(item)
 
+import concurrent.futures
+import threading
+from typing import List, Optional
+from functools import partial
+
+# Create a thread pool (adjust max_workers based on your needs)
+# 4-10 workers is usually good for I/O-bound bot operations
+_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="BotWorker")
+_thread_local = threading.local()
+
+def message_handler(parsed_response: List[Message]):
+    """
+    Handle multiple messages concurrently using ThreadPoolExecutor.
+    """
+    if not parsed_response:
+        return
+    
+    # Submit all messages to the thread pool
+    futures = []
+    for item in parsed_response:
+        future = _EXECUTOR.submit(handle_one_message_threadsafe, item)
+        futures.append(future)
+    
+    # Optional: Wait for all tasks to complete (with timeout)
+    # This ensures all messages are processed before next iteration
+    for future in concurrent.futures.as_completed(futures, timeout=30):
+        try:
+            future.result()  # Will raise any exception that occurred
+        except Exception as e:
+            print(f"Error processing message in thread: {e}")
+
+def handle_one_message_threadsafe(msg: Message):
+    """
+    Thread-safe wrapper for message handling.
+    Each thread gets its own context.
+    """
+    # Get or create thread-local resources
+    if not hasattr(_thread_local, 'user_mgr'):
+        # Initialize thread-local instances (if your managers are thread-safe)
+        _thread_local.user_mgr = user_mgr
+        _thread_local.payment_mgr = payment_mgr
+        _thread_local.api_client = apiClient
+        _thread_local.connection_mgr = connection_between_players
+        _thread_local.keypad = keypad
+        _thread_local.lang = lang
+    
+    try:
+        # Call the original handler with thread-local resources
+        handle_one_message(
+            msg
+        )
+    except Exception as e:
+        error_message = f"Error in thread for message {msg.message_id}: {traceback.format_exception(e)}"
+        print(error_message)
+        apiClient.send_message(CHAT_ID_ADMIN, error_message)
+        traceback.print_exc()
+
 def handle_one_message(msg: Message):
+    
+    # Flood manager
+    user_id = msg.sender_id
+    chat_id = msg.chat_id
+    user = None
+
+    # ----- Anti‑flood check -----
+    # 1. Get user from DB (to check if already banned)
+    try:
+        user = user_mgr.get(user_id=user_id, chat_id=chat_id)  # returns LocalUser or None
+    except Exception as e:
+        print("User is not available:", user_id, chat_id)
+    
+    if user and user.is_banned:
+        # User is blocked – ignore completely
+        print(f"Blocked user {user_id} tried to send a message. Ignoring.")
+        return
+
+    # 2. Flood detection
+    is_flood, should_warn, strike = flood_manager.check_and_record(user_id)
+
+    if is_flood:
+        if should_warn:
+            # First warning
+            apiClient.send_message(chat_id,
+                "⚠️ شما بیش از حد مجاز پیام ارسال می‌کنید.\n"
+                "در صورت ادامه، حساب شما مسدود و به پلتفرم گزارش خواهد شد.")
+        elif strike >= flood_manager.max_strikes:
+            # Block the user permanently
+            if user:
+                user.is_banned = True
+                user_mgr.sync.update_user(user)   # sync to local & remote
+            else:
+                # Create user record just to ban them
+                user = user_mgr.get_or_create(user_id, chat_id, is_banned=True)
+                user.is_banned = True
+                user_mgr.sync.update_user(user)
+
+            # Optional: report to Rubika (admin or log)
+            report_to_rubika(user_id, chat_id)   # see function below
+
+            apiClient.send_message(chat_id,
+                "🚫 شما به دلیل ارسال بیش از حد مجاز پیام مسدود شدید.\n"
+                "دیگر نمی‌توانید از ربات استفاده کنید.")
+            return   # Stop further processing
+
+        # If flood but not yet blocked, we drop the message (don't process commands)
+        return
+
+    # ----- Normal message processing (continue with your existing logic) -----
+    # ... rest of your handler (commands, pairing, etc.)
+
+
+
     print(apiClient.get_chat_info(msg.chat_id),"is being checked!")
     keydata = None
     message_to_send:str = None
@@ -132,14 +247,14 @@ def handle_one_message(msg: Message):
 
         print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
         print(f"   Text: {msg.text}")
-        print(f"   Type: {'Private' if msg.is_private else 'Group'}")
+        print(f"   Type: {'Group' if msg.is_group else 'Private'}")
         print(f"   Username: {msg.sender_username}")
-    
-    user = user_mgr.get(msg.sender_id, msg.chat_id)
+
+    if msg.is_group:
+        user
 
 
-
-    if msg.text == lang.get_text("iam_girl", user_language):
+    elif msg.text == lang.get_text("iam_girl", user_language):
         print("it's a girl")
         if user == None:
             # If the user does not exist
@@ -169,7 +284,7 @@ def handle_one_message(msg: Message):
             user_mgr.set_language(user, "fa")
             apiClient.send_message(msg.chat_id, lang.get_text("please_select_your_age", user.language))
 
-    elif msg.text == "/start" or user == None:
+    elif msg.text == lang.get_text("/start",user_language) or user == None:
         
         if user == None:
             # The user does not exist
@@ -218,10 +333,10 @@ def handle_one_message(msg: Message):
         # Play
         play_with_stranger(msg, user)
 
-    elif msg.text == lang.get_text("play_with_girl"):
+    elif msg.text == lang.get_text("play_with_girl", user.language):
         play_with_stranger(msg, user, 2)
 
-    elif msg.text == lang.get_text("play_with_boy"):
+    elif msg.text == lang.get_text("play_with_boy", user.language):
         play_with_stranger(msg, user, 1)
 
     elif msg.text == lang.get_text("cancel_the_search", user_language):
@@ -319,16 +434,18 @@ def handle_one_message(msg: Message):
         user = user_mgr.get_or_create(msg.sender_id, msg.chat_id)
         result = payment_mgr.create_purchase(user, msg.chat_id, product_id)
         if result['success']:
-            apiClient.send_message(msg.chat_id, f"💰 مبلغ {result['amount']:,} تومان\n🔗 برای پرداخت کلیک کنید:\n{result['payment_link']}\n\n⏳ لینک ۳۰ دقیقه معتبر است.\nبعد از پرداخت /check را بزنید یا منتظر بمانید.")
+            keypad.send_message_with_keypad(msg.chat_id, f"💰 مبلغ {result['amount']:,} تومان\n🔗 برای پرداخت کلیک کنید:\n{result['payment_link']}\n\n⏳ لینک ۳۰ دقیقه معتبر است.\nبعد از پرداخت /check را بزنید یا منتظر بمانید.", get_check_purchase_keydata(user))
         else:
-            apiClient.send_message(msg.chat_id, f"❌ خطا: {result.get('error')}")
+            apiClient.send_message(CHAT_ID_ADMIN, f"❌ خطا: {result.get('error')}")            
+            apiClient.send_message(msg.chat_id, lang.get_text("purchase_is_not_available_now_try_later", user.language))
+
         # Check if there is any keypad to send
         if keydata != None and message_to_send:
             keypad.send_message_with_keypad(msg.chat_id, message_to_send, keydata)
             keydata = None
 
 
-    elif msg.text == "/check":
+    elif msg.text == lang.get_text("/check",user_language):
         try:
             res = payment_mgr.manual_check(msg.sender_id)
             if res.get('success'):
@@ -343,13 +460,13 @@ def handle_one_message(msg: Message):
             print(f"Error in /check: {traceback.format_exception(e)}")
             apiClient.send_message(msg.chat_id, "❌ خطایی رخ داد. لطفاً بعداً تلاش کنید.")
 
-    elif msg.text.startswith("invite"):
+    elif msg.text.startswith(lang.get_text("invite", user.language)):
         if user.level != 1:
             # The user is invited before!
             apiClient.send_message(msg.chat_id, lang.get_text("you_are_invited_one_time_before", user.language))
             return
         
-        invite_code = msg.text.replace("invite", "").strip()
+        invite_code = msg.text.replace(lang.get_text("invite", user.language), "").strip()
         if invite_code:
             inviter_user = user_mgr.get(chat_id=invite_code)
             if inviter_user and invite_code != msg.chat_id:
@@ -426,6 +543,21 @@ def handle_one_message(msg: Message):
 #             connection_between_players.add_to_waiting_queue(user.chat_id, user.username, user.sex, gender_filter, is_pro)    
 #             print(msg.chat_id, "Added to queue!")
 #             keypad.send_message_with_keypad(msg.chat_id, lang.get_text("stranger"), get_cancel_the_search_keydata())
+
+def report_to_rubika(user_id: str, chat_id: str):
+    """
+    Send a report to a dedicated admin chat or log to a file.
+    Rubika does not have a public report API; you can notify your moderation team.
+    """
+    admin_chat_id = "admin_chat_id_here"   # Replace with your admin chat ID
+    message = f"🚨 کاربر {user_id} به دلیل هرزنامه (flood) مسدود شد."
+    try:
+        apiClient.send_message(CHAT_ID_ADMIN, message)
+    except Exception as e:
+        print(f"Could not send admin report: {e}")
+    # Also log to file
+    with open("flood_reports.log", "a") as f:
+        f.write(f"{time.time()}: Banned {user_id} (chat {chat_id})\n")
 
 def play_with_stranger(msg: Message, user: LocalUser, preferred_gender: int = -1):
     """
@@ -559,7 +691,12 @@ def play_with_stranger(msg: Message, user: LocalUser, preferred_gender: int = -1
               f"Pro queue: {queue_stats['pro_waiting']}, "
               f"Regular queue: {queue_stats['regular_waiting']}")
         
-
+def get_check_purchase_keydata(user):
+    key_check = keypad.create_simple_button(675, lang.get_text("/check",user_language))
+    key_back_to_main_menu = keypad.create_simple_button(1,lang.get_text("back_to_main_menu",user.language))
+    row1 = keypad.create_keypad_row([key_check])
+    row2 = keypad.create_keypad_row([key_back_to_main_menu])
+    return keypad.build_keypad([row1, row2])
 
 def get_main_page_keydata():
     key_play_with_stranger = keypad.create_simple_button(1, lang.get_text("play_with_stranger",user_language))
@@ -632,14 +769,14 @@ def send_sex_selection_keyboard(chat_id):
     keydata = keypad.build_keypad([row1],True,one_time_keyboard=True)
     keypad.send_message_with_keypad(chat_id, lang.get_text("please_select_your_sex", user_language), keydata)
 
-def buy_premium_account_keydata(msg,user):
+def buy_premium_account_keydata(msg,user:LocalUser):
     products_kb = get_products_keypad(user)
-    keypad.send_message_with_keypad(msg.chat_id, "🛒 محصولات:", products_kb)
+    keypad.send_message_with_keypad(msg.chat_id, lang.get_text("products", user.language), products_kb)
 
 def coin_status_pressed(msg:Message,user:LocalUser):
     message_to_send = lang.get_text("your_coin_number",user.language).format(coin=user.coin)
-    message_to_send += lang.get_text("you_can_get_coins_by_inviting_friends_and_your_invite_code_is", user.language).format(coin_invitation_number = CODE_INVITATION_NUMBER)
-    message_to_send += "\n invite"+ msg.chat_id
+    message_to_send += lang.get_text("you_can_get_coins_by_inviting_friends_and_your_invite_code_is", user.language).format(coin_invitation_number = COIN_INVITATION_NUMBER)
+    message_to_send += "\n"+lang.get_text("invite", user.language)+ msg.chat_id
     key_buy_premium = keypad.create_simple_button("1023",lang.get_text(lang.get_text("buy_premium_account"),user.language))
     key_back_to_main_menu = keypad.create_simple_button(1,lang.get_text("back_to_main_menu",user.language))
     row1 = keypad.create_keypad_row([key_buy_premium])

@@ -32,7 +32,7 @@ class User(BaseModel):
     
     # Subscription & Status
     subscription_date = BigIntegerField(default=0)
-    is_active = BooleanField(default=True)
+    is_active = BooleanField(default=False)
     is_banned = BooleanField(default=False)
     
     # Statistics

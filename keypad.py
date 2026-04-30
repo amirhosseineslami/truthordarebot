@@ -50,7 +50,10 @@ class Keypad():
         try:
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status() # خطاهای HTTP را بررسی می‌کند
-            print(f"Message sent successfully to {chat_id}. Response: {response.text}")
+            if response.status_code != "OK":
+                print(f"Message didn't send! {chat_id}. Response: {response.text}")
+            else: 
+                print(f"Message sent successfully to {chat_id}. Response: {response.text}")
             return response.json()
         except requests.exceptions.RequestException as e:
             print(f"Error sending message: {e}")
@@ -73,8 +76,12 @@ class Keypad():
         try:
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status() # خطاهای HTTP را بررسی می‌کند
-            print(f"Message sent successfully to {chat_id}. Response: {response.text}")
+            if response.status_code != "OK":
+                print("Message didn't send! {chat_id}. Response: {response.text}")
+            else: 
+                print(f"Message sent successfully to {chat_id}. Response: {response.text}")
             return response.json()
+        
         except requests.exceptions.RequestException as e:
             print(f"Error sending message: {e}")
             return None

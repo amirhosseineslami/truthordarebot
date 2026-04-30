@@ -115,11 +115,11 @@ class Message:
 
     @property
     def is_private(self) -> bool:
-        return self.sender_id.startswith('u')
+        return self.chat_id.startswith('u')
 
     @property
     def is_group(self) -> bool:
-        return self.sender_id.startswith('g')
+        return self.chat_id.startswith('g')
 
     @property
     def sender_display_name(self) -> str:

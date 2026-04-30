@@ -67,3 +67,73 @@ class BotApiClient:
         return response.text
         
 
+    def send_message_with_metadata(self, chat_id: str, text: str, metadata_parts: list,
+                                disable_notification: bool = False,
+                                reply_to_message_id: str = None) -> dict:
+        """
+        Send a message with rich formatting (bold, italic, underline, strike, links, mentions).
+
+        Args:
+            chat_id: Target chat ID.
+            text: The message text (plain UTF‑16 string).
+            metadata_parts: List of MetadataPart dicts, each must contain:
+                - type: one of 'Bold', 'Italic', 'Underline', 'Strike', 'Link', 'MentionText'
+                - from_index: start index in the text (UTF‑16)
+                - length: length of the affected substring (UTF‑16)
+                - link_url: required if type == 'Link'
+                - mention_text_user_id: required if type == 'MentionText'
+            disable_notification: If True, no notification for the user.
+            reply_to_message_id: ID of the message to reply to.
+
+        Returns:
+            API response as dict.
+        """
+        url = BASE_URL + "sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "metadata": {
+                "meta_data_parts": metadata_parts
+            },
+            "disable_notification": disable_notification
+        }
+        if reply_to_message_id:
+            data["reply_to_message_id"] = reply_to_message_id
+
+        response = requests.post(url, json=data)
+        response.raise_for_status()
+        return response.json()
+
+
+    def edit_message_text(self, chat_id: str, message_id: str, text: str,
+                        metadata_parts: list = None) -> dict:
+        """
+        Edit an existing message's text and optionally its metadata.
+
+        Args:
+            chat_id: Chat containing the message.
+            message_id: ID of the message to edit.
+            text: New text for the message.
+            metadata_parts: Optional list of MetadataPart dicts.
+                        If omitted, existing metadata is removed.
+                        To keep existing metadata, you must re‑send the same parts.
+
+        Returns:
+            API response as dict.
+        """
+        url = BASE_URL + "editMessageText"
+        data = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text
+        }
+        if metadata_parts is not None:
+            data["metadata"] = {
+                "meta_data_parts": metadata_parts
+            }
+
+        response = requests.post(url, json=data)
+        response.raise_for_status()
+        return response.json()
+
+
