@@ -62,7 +62,7 @@
   "invalid_payment_amount" : "مقدار پرداخت نامعتبر است. لطفا مقدار صحیح را وارد کنید.",
   "products" : "محصولات:",
   "the_activation_process_was_successful" : "فعالسازی ربات با موفقیت انجام شد شما می توانید از ربات استفاده کنید.",
-  "you_must_join_the_group_and_send_a_message_to_activate_the_bot" : "شما باید یکبار عضو گروه شوید و با فرستادن پیام در گروه ربات را فعال کنید. \nتوجه: پیام شما در گروه پس از احراز هویت پاک می شود. \n لینک گروه: {GROUP_LINK}",
+  "you_must_join_the_group_and_send_a_message_to_activate_the_bot" : "شما باید عضو گروه شوید و با فرستادن پیام /start در گروه ربات را فعال کنید. \nتوجه: پیام شما در گروه پس از احراز هویت پاک می شود. \n لینک گروه: {GROUP_LINK}",
   
   "truth_questions": [
     "بزرگترین ترست چیه؟",

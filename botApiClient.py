@@ -3,6 +3,13 @@ import requests, os, dotenv
 dotenv.load_dotenv()
 TOKEN = os.environ.get("BOT_TOKEN")
 BASE_URL = f"https://botapi.rubika.ir/v3/{TOKEN}/"
+TIMEOUT_CONNECTION_RUBIKA = int(os.environ.get("TIMEOUT_CONNECTION_RUBIKA", "60"))
+import time
+import logging
+from requests.exceptions import RequestException, Timeout, ConnectionError
+
+logger = logging.getLogger(__name__)
+
 
 class BotApiClient:
 
@@ -22,7 +29,7 @@ class BotApiClient:
         url = BASE_URL + f'sendMessage'
         
         # Let's now send the post request
-        response = requests.post(url,json=data)
+        response = requests.post(url,json=data,timeout=TIMEOUT_CONNECTION_RUBIKA)
         response.raise_for_status()
         return response.json()
     

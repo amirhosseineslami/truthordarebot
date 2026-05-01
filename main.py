@@ -13,7 +13,7 @@ from flood_manager import flood_manager
 import random
 import traceback
 from database import init_db
-
+import asyncio
 
 
 LOCAL_SAVE_NAME = "offset.json"
@@ -44,9 +44,17 @@ user_mgr = UserManager(sync_mgr)
 chat_cache = {}   # simple cache to avoid repeated API calls
 COIN_INVITATION_NUMBER = 3
 CHAT_ID_ADMIN = os.environ.get('CHAT_ID_ADMIN', None)
+
+
 CHAT_ID_GROUP = os.environ.get('CHAT_ID_GROUP')
-GROUP_LINK = os.environ.get("GROUP_LINK")
+
+
 CHANNEL_INFORM_ADMIN = os.environ.get("CHANNEL_INFORM_ADMIN")
+
+
+
+AUTHORIZE_GROUP_LINK = os.environ.get("GROUP_LINK_MOSHAVERE")
+AUTHORIZE_GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID_MOSHAVERE")
 
 #payment manager
 from payment_manager import PaymentManager
@@ -62,7 +70,15 @@ for pid, info in PaymentManager.PRODUCTS.items():
     PRODUCT_BUTTON_TO_ID[button_label] = pid
 
 
-def main():
+async def main():
+    while True:
+        await do_polling()
+        await asyncio.sleep(0.5)
+
+
+async def do_polling():
+
+    user_mgr.deactivate_user(user_mgr.get(chat_id="b0JFHxs06Cx0e5811bd32dc774737183"))
 
     # Bot is running
     bot_running = True
@@ -182,7 +198,7 @@ def handle_one_message_threadsafe(msg: Message):
             msg
         )
     except Exception as e:
-        error_message = f"Error in thread for message {msg.message_id}: {traceback.format_exception(e)}"
+        error_message = f"Error in thread for message {msg.message_id}: {traceback.format_exception(e).__str__()}"
         print(error_message)
         apiClient.send_message(CHAT_ID_ADMIN, error_message)
         traceback.print_exc()
@@ -196,11 +212,13 @@ def handle_one_message(msg: Message):
 
     # ----- Anti‑flood check -----
     # 1. Get user from DB (to check if already banned)
-    try:
-        user = user_mgr.get(user_id=user_id, chat_id=chat_id)  # returns LocalUser or None
-    except Exception as e:
-        print("User is not available:", user_id, chat_id)
+    if user_id or chat_id:
+        try:
+            user = user_mgr.get(user_id=user_id, chat_id=chat_id)  # returns LocalUser or None
+        except Exception as e:
+            print("User is not available:", user_id, chat_id)
     
+
     if user and user.is_banned:
         # User is blocked – ignore completely
         print(f"Blocked user {user_id} tried to send a message. Ignoring.")
@@ -252,7 +270,7 @@ def handle_one_message(msg: Message):
         print(f"   Username: {msg.sender_username}")
 
     if msg.is_group:
-        if msg.chat_id != GROUP_LINK:
+        if msg.chat_id != AUTHORIZE_GROUP_CHAT_ID:
             #This group is not our group
             return
         
@@ -263,6 +281,7 @@ def handle_one_message(msg: Message):
             try:
                 user_mgr.activate_user(user)
                 keypad.send_message_with_keypad(user.chat_id, lang.get_text("the_activation_process_was_successful", user.language),get_main_page_keydata())
+                apiClient.send_message(AUTHORIZE_GROUP_CHAT_ID, lang.get_text("the_activation_process_was_successful", user.language))
             except Exception as e:
                 print(e.__format__(traceback))
 
@@ -342,7 +361,7 @@ def handle_one_message(msg: Message):
 
 
     elif not user.is_active:
-        message_to_send = lang.get_text("you_must_join_the_group_and_send_a_message_to_activate_the_bot", user.language).format(GROUP_LINK = GROUP_LINK)
+        message_to_send = lang.get_text("you_must_join_the_group_and_send_a_message_to_activate_the_bot", user.language).format(GROUP_LINK = AUTHORIZE_GROUP_LINK)
         apiClient.send_message(msg.chat_id, message_to_send)
 
     
@@ -838,5 +857,5 @@ def get_products_keypad(user:LocalUser):
 
 
 
-if __name__ == "__main__" :
-    main()
+if __name__ == "__main__" :  
+    asyncio.run(main())
