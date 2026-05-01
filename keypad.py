@@ -77,7 +77,7 @@ class Keypad():
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status() # خطاهای HTTP را بررسی می‌کند
             if response.status_code != "OK":
-                print("Message didn't send! {chat_id}. Response: {response.text}")
+                print(f"Message didn't send! {chat_id}. Response: {response.text}")
             else: 
                 print(f"Message sent successfully to {chat_id}. Response: {response.text}")
             return response.json()

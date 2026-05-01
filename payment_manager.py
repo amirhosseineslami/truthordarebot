@@ -4,6 +4,7 @@ from typing import Dict, Optional
 from models.payment import Payment
 from zibal_helper import check_zibal_payment
 from models.sync_manager import SyncManager,UserManager
+import database 
 
 class PaymentManager:
     def __init__(self, sync_manager:SyncManager, user_manager:UserManager, send_message_func):
@@ -12,6 +13,9 @@ class PaymentManager:
         self.send_message = send_message_func   # your bot's send function
         self._polling_threads = {}
         self._stop_polling = {}
+        self._ensure_tables()
+
+        
 
         
     PRODUCTS = {
@@ -46,6 +50,14 @@ class PaymentManager:
             'coins': 600
         }
     }
+
+    def _ensure_tables(self):
+        from models.payment import Payment
+        # Make sure the database is connected first
+        if database.db.is_closed():
+            database.db.connect()
+        database.db.create_tables([Payment], safe=True)
+
 
     def get_products(self):
         return self.PRODUCTS

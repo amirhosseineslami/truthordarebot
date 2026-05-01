@@ -111,6 +111,92 @@ class LocalUser(Model):
         """Check if user has active subscription"""
         import time
         return self.subscription_date > int(time.time())
+    
+
+    # ============================================
+    # Statistics Methods
+    # ============================================
+    def record_game_result(self, won: bool):
+        self.total_games_played += 1
+        if won:
+            self.total_wins += 1
+        else:
+            self.total_losses += 1
+        self.is_dirty = True
+        self.save()
+
+    def record_message(self):
+        self.total_messages += 1
+        self.is_dirty = True
+        self.save()
+
+    def update_last_seen(self):
+        import time
+        self.last_seen = int(time.time())
+        self.is_dirty = True
+        self.save()
+
+    # ============================================
+    # Status Methods (ban, activate, etc.)
+    # ============================================
+    def ban(self):
+        self.is_banned = True
+        self.is_active = False
+        self.is_dirty = True
+        self.save()
+
+    def unban(self):
+        self.is_banned = False
+        self.is_active = True
+        self.is_dirty = True
+        self.save()
+
+    def deactivate(self):
+        self.is_active = False
+        self.is_dirty = True
+        self.save()
+
+    def activate(self):
+        self.is_active = True
+        self.is_dirty = True
+        self.save()
+
+    # ============================================
+    # Blocking Methods
+    # ============================================
+    def block_user(self, chat_id_to_block: str) -> bool:
+        blocked = self.blocked_users_list
+        if chat_id_to_block not in blocked:
+            blocked.append(chat_id_to_block)
+            self.blocked_users = json.dumps(blocked)
+            self.is_dirty = True
+            self.save()
+            return True
+        return False
+
+    def unblock_user(self, chat_id_to_unblock: str) -> bool:
+        blocked = self.blocked_users_list
+        if chat_id_to_unblock in blocked:
+            blocked.remove(chat_id_to_unblock)
+            self.blocked_users = json.dumps(blocked)
+            self.is_dirty = True
+            self.save()
+            return True
+        return False
+
+    def is_blocked(self, chat_id_to_check: str) -> bool:
+        return chat_id_to_check in self.blocked_users_list
+
+    # ============================================
+    # Game State Methods
+    # ============================================
+    def get_game_state(self, key: str, default=None):
+        return self.game_state_dict.get(key, default)
+
+    def clear_game_state(self):
+        self.game_state = '{}'
+        self.is_dirty = True
+        self.save()
 
 
 # -------------------------------------------------------------------
@@ -325,6 +411,8 @@ class SyncManager:
                     print(f"✅ Added missing column '{name}'")
                 except Exception as e:
                     print(f"⚠️ Failed to add column {name}: {e}")
+
+
 
                     
 # -------------------------------------------------------------------

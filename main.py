@@ -12,6 +12,8 @@ from models.sync_manager import SyncManager, UserManager,LocalUser
 from flood_manager import flood_manager
 import random
 import traceback
+from database import init_db
+
 
 
 LOCAL_SAVE_NAME = "offset.json"
@@ -33,7 +35,7 @@ user_language = "fa"
 # At startup, choose mode (e.g., via environment variable)
 import os
 mode = os.environ.get('BOT_MODE', 'periodic')   # 'online', 'offline', 'periodic'
-interval = int(os.environ.get('SYNC_INTERVAL_HOURS', 2))
+interval = int(os.environ.get('SYNC_INTERVAL_HOURS', 1))
 
 sync_mgr = SyncManager(mode=mode, sync_interval_hours=interval, pull_on_start=True)
 sync_mgr.start_periodic_sync()   # only does something in 'periodic' mode
@@ -43,6 +45,8 @@ chat_cache = {}   # simple cache to avoid repeated API calls
 COIN_INVITATION_NUMBER = 3
 CHAT_ID_ADMIN = os.environ.get('CHAT_ID_ADMIN', None)
 CHAT_ID_GROUP = os.environ.get('CHAT_ID_GROUP')
+GROUP_LINK = os.environ.get("GROUP_LINK")
+CHANNEL_INFORM_ADMIN = os.environ.get("CHANNEL_INFORM_ADMIN")
 
 #payment manager
 from payment_manager import PaymentManager
@@ -119,7 +123,7 @@ def main():
         except Exception as e:
             traceback.print_exc()
         print(time.time())
-        time.sleep(0.3)
+        time.sleep(0.5)
 
 def message_handler(parsed_response: list[Message]):
     global user_language
@@ -236,9 +240,6 @@ def handle_one_message(msg: Message):
     # ----- Normal message processing (continue with your existing logic) -----
     # ... rest of your handler (commands, pairing, etc.)
 
-
-
-    print(apiClient.get_chat_info(msg.chat_id),"is being checked!")
     keydata = None
     message_to_send:str = None
         # Optionally enrich with chat info (first time only)
@@ -247,12 +248,34 @@ def handle_one_message(msg: Message):
 
         print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
         print(f"   Text: {msg.text}")
-        print(f"   Type: {'Group' if msg.is_group else 'Private'}")
+        print(f"   Type: {msg.get_chat_type()}")
         print(f"   Username: {msg.sender_username}")
 
     if msg.is_group:
-        user
+        if msg.chat_id != GROUP_LINK:
+            #This group is not our group
+            return
+        
+        apiClient.delete_message(chat_id,msg.message_id)
 
+        if user != None:
+            # activation process
+            try:
+                user_mgr.activate_user(user)
+                keypad.send_message_with_keypad(user.chat_id, lang.get_text("the_activation_process_was_successful", user.language),get_main_page_keydata())
+            except Exception as e:
+                print(e.__format__(traceback))
+
+    
+    elif msg.is_channel:
+        if msg.chat_id == CHANNEL_INFORM_ADMIN:
+            for user in user_mgr.get_all_users():
+                user:LocalUser = user
+                try:
+                    apiClient.send_message(user.chat_id, msg.text)
+                except Exception as e:
+                    report_to_rubika(user.user_id, user.chat_id)
+        
 
     elif msg.text == lang.get_text("iam_girl", user_language):
         print("it's a girl")
@@ -268,6 +291,7 @@ def handle_one_message(msg: Message):
             user_mgr.set_username(user,msg.sender_username)
             user_mgr.set_age(user, -1)
             user_mgr.set_language(user, "fa")
+            user_mgr.deactivate_user(user)
             apiClient.send_message(msg.chat_id,lang.get_text("please_select_your_age", user.language))
 
     elif msg.text == lang.get_text("iam_boy", user_language):
@@ -275,13 +299,13 @@ def handle_one_message(msg: Message):
         if user == None:
             # If the user does not exist
             user = user_mgr.get_or_create(msg.sender_id,msg.chat_id)
-            print("created:",apiClient.get_chat_info(msg.chat_id))
             user_mgr.set_sex(user, 1)
             user_mgr.set_first_name(user,msg.sender_first_name)
             user_mgr.set_last_name(user,msg.sender_last_name)
             user_mgr.set_username(user,msg.sender_username)
             user_mgr.set_age(user,-1)
             user_mgr.set_language(user, "fa")
+            user_mgr.deactivate_user(user)
             apiClient.send_message(msg.chat_id, lang.get_text("please_select_your_age", user.language))
 
     elif msg.text == lang.get_text("/start",user_language) or user == None:
@@ -314,7 +338,12 @@ def handle_one_message(msg: Message):
             # age is valid
             user_mgr.set_age(user,age_number)
             message_to_send = lang.get_text("your_age_is_set_now_you_can_play", user.language)
-            keydata = get_main_page_keydata()
+            keypad.send_message_with_keypad(msg.chat_id, message_to_send, get_main_page_keydata())
+
+
+    elif not user.is_active:
+        message_to_send = lang.get_text("you_must_join_the_group_and_send_a_message_to_activate_the_bot", user.language).format(GROUP_LINK = GROUP_LINK)
+        apiClient.send_message(msg.chat_id, message_to_send)
 
     
     elif msg.text.startswith(lang.get_text("my_age_is", user_language)):
@@ -471,15 +500,17 @@ def handle_one_message(msg: Message):
             inviter_user = user_mgr.get(chat_id=invite_code)
             if inviter_user and invite_code != msg.chat_id:
                 # Add coins to both inviter and invitee
-                user_mgr.add_coins(inviter_user, 5)
-                user_mgr.add_coins(user, 5)
+                user_mgr.add_coins(inviter_user, COIN_INVITATION_NUMBER)
+                user_mgr.add_coins(user, COIN_INVITATION_NUMBER)
                 user_mgr.set_level(user, user.level+1)  # Mark the user as having been invited
-                apiClient.send_message(msg.chat_id, f"🎉 شما با موفقیت دعوت شدید! 5 سکه به شما و دعوت‌کننده اضافه شد.")
-                apiClient.send_message(inviter_user.chat_id, f"🎉 کاربر جدیدی با کد دعوت شما ثبت‌نام کرد! 5 سکه به شما اضافه شد.")
+                apiClient.send_message(msg.chat_id, f"🎉 شما با موفقیت دعوت شدید! {COIN_INVITATION_NUMBER} سکه به شما و دعوت‌کننده اضافه شد.")
+                apiClient.send_message(inviter_user.chat_id, f"🎉 کاربر جدیدی با کد دعوت شما ثبت‌نام کرد! {COIN_INVITATION_NUMBER} سکه به شما اضافه شد.")
             else:
                 apiClient.send_message(msg.chat_id, "❌ کد دعوت نامعتبر است.")
         else:
             apiClient.send_message(msg.chat_id, "❌ لطفاً یک کد دعوت معتبر وارد کنید.")
+
+
 
     if message_to_send != None and keydata != None:
         keypad.send_message_with_keypad(msg.chat_id,message_to_send,keydata)
@@ -553,6 +584,8 @@ def report_to_rubika(user_id: str, chat_id: str):
     message = f"🚨 کاربر {user_id} به دلیل هرزنامه (flood) مسدود شد."
     try:
         apiClient.send_message(CHAT_ID_ADMIN, message)
+        apiClient.send_message(CHANNEL_INFORM_ADMIN, message)
+
     except Exception as e:
         print(f"Could not send admin report: {e}")
     # Also log to file

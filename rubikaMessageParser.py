@@ -120,6 +120,18 @@ class Message:
     @property
     def is_group(self) -> bool:
         return self.chat_id.startswith('g')
+    
+    @property
+    def is_channel(self) -> bool:
+        return self.chat_id.startswith('c')
+    
+    def get_chat_type(self):
+        if self.is_group:
+            return 'group'
+        elif self.is_channel:
+            return 'channel'
+        else:
+            return 'private'
 
     @property
     def sender_display_name(self) -> str:
