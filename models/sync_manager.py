@@ -197,6 +197,18 @@ class LocalUser(Model):
         self.game_state = '{}'
         self.is_dirty = True
         self.save()
+    
+    def display_name(self):
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        elif self.first_name:
+            return self.first_name
+        elif self.last_name:
+            return self.last_name
+        elif self.username:
+            return self.username
+        else:
+            return "Unknown"
 
 
 # -------------------------------------------------------------------

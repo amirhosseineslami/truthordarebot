@@ -14,6 +14,9 @@ import random
 import traceback
 from database import init_db
 import asyncio
+# After initializing apiClient, user_mgr, and keypad
+from group_game_manager import init_group_game_manager
+
 
 
 LOCAL_SAVE_NAME = "offset.json"
@@ -70,6 +73,9 @@ for pid, info in PaymentManager.PRODUCTS.items():
     PRODUCT_BUTTON_TO_ID[button_label] = pid
 
 
+group_game_manager = init_group_game_manager(apiClient, user_mgr)
+
+
 async def main():
     while True:
         await do_polling()
@@ -77,8 +83,6 @@ async def main():
 
 
 async def do_polling():
-
-    user_mgr.deactivate_user(user_mgr.get(chat_id="b0JFHxs06Cx0e5811bd32dc774737183"))
 
     # Bot is running
     bot_running = True
@@ -210,7 +214,19 @@ def handle_one_message(msg: Message):
     chat_id = msg.chat_id
     user = None
 
-    # ----- Anti‑flood check -----
+
+    keydata = None
+    message_to_send:str = None
+        # Optionally enrich with chat info (first time only)
+    if not msg._chat_info:
+        msg = parser.enrich_message_with_chat(apiClient, msg, chat_cache)
+
+        print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
+        print(f"   Text: {msg.text}")
+        print(f"   Type: {msg.get_chat_type()}")
+        print(f"   Username: {msg.sender_username}")
+
+
     # 1. Get user from DB (to check if already banned)
     if user_id or chat_id:
         try:
@@ -224,66 +240,59 @@ def handle_one_message(msg: Message):
         print(f"Blocked user {user_id} tried to send a message. Ignoring.")
         return
 
-    # 2. Flood detection
-    is_flood, should_warn, strike = flood_manager.check_and_record(user_id)
+    
+    if not (msg.is_group or msg.is_channel):
+            
+        # ----- Anti‑flood check -----
+        # 2. Flood detection
+        is_flood, should_warn, strike = flood_manager.check_and_record(user_id)
 
-    if is_flood:
-        if should_warn:
-            # First warning
-            apiClient.send_message(chat_id,
-                "⚠️ شما بیش از حد مجاز پیام ارسال می‌کنید.\n"
-                "در صورت ادامه، حساب شما مسدود و به پلتفرم گزارش خواهد شد.")
-        elif strike >= flood_manager.max_strikes:
-            # Block the user permanently
-            if user:
-                user.is_banned = True
-                user_mgr.sync.update_user(user)   # sync to local & remote
-            else:
-                # Create user record just to ban them
-                user = user_mgr.get_or_create(user_id, chat_id, is_banned=True)
-                user.is_banned = True
-                user_mgr.sync.update_user(user)
+        if is_flood:
+            if should_warn:
+                # First warning
+                apiClient.send_message(chat_id,
+                    "⚠️ شما بیش از حد مجاز پیام ارسال می‌کنید.\n"
+                    "در صورت ادامه، حساب شما مسدود و به پلتفرم گزارش خواهد شد.")
+            elif strike >= flood_manager.max_strikes:
+                # Block the user permanently
+                if user:
+                    user.is_banned = True
+                    user_mgr.sync.update_user(user)   # sync to local & remote
+                else:
+                    # Create user record just to ban them
+                    user = user_mgr.get_or_create(user_id, chat_id, is_banned=True)
+                    user.is_banned = True
+                    user_mgr.sync.update_user(user)
 
-            # Optional: report to Rubika (admin or log)
-            report_to_rubika(user_id, chat_id)   # see function below
+                # Optional: report to Rubika (admin or log)
+                report_to_rubika(user_id, chat_id)   # see function below
 
-            apiClient.send_message(chat_id,
-                "🚫 شما به دلیل ارسال بیش از حد مجاز پیام مسدود شدید.\n"
-                "دیگر نمی‌توانید از ربات استفاده کنید.")
-            return   # Stop further processing
+                apiClient.send_message(chat_id,
+                    "🚫 شما به دلیل ارسال بیش از حد مجاز پیام مسدود شدید.\n"
+                    "دیگر نمی‌توانید از ربات استفاده کنید.")
+                return   # Stop further processing
 
-        # If flood but not yet blocked, we drop the message (don't process commands)
-        return
+            # If flood but not yet blocked, we drop the message (don't process commands)
+            return
 
-    # ----- Normal message processing (continue with your existing logic) -----
-    # ... rest of your handler (commands, pairing, etc.)
+        # ----- Normal message processing (continue with your existing logic) -----
+        # ... rest of your handler (commands, pairing, etc.)
 
-    keydata = None
-    message_to_send:str = None
-        # Optionally enrich with chat info (first time only)
-    if not msg._chat_info:
-        msg = parser.enrich_message_with_chat(apiClient, msg, chat_cache)
-
-        print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
-        print(f"   Text: {msg.text}")
-        print(f"   Type: {msg.get_chat_type()}")
-        print(f"   Username: {msg.sender_username}")
 
     if msg.is_group:
-        if msg.chat_id != AUTHORIZE_GROUP_CHAT_ID:
-            #This group is not our group
-            return
-        
-        apiClient.delete_message(chat_id,msg.message_id)
 
-        if user != None:
-            # activation process
-            try:
-                user_mgr.activate_user(user)
-                keypad.send_message_with_keypad(user.chat_id, lang.get_text("the_activation_process_was_successful", user.language),get_main_page_keydata())
-                apiClient.send_message(AUTHORIZE_GROUP_CHAT_ID, lang.get_text("the_activation_process_was_successful", user.language))
-            except Exception as e:
-                print(e.__format__(traceback))
+        if msg.chat_id == AUTHORIZE_GROUP_CHAT_ID and msg.text == lang.get_text("/activate"):
+
+            if user == None:
+                apiClient.send_message(msg.chat_id, lang.get_text("you_are_not_a_user_first_sign_up_in_the_bot"), reply_to_message_id= msg.message_id)
+                return
+            
+            #This group is our group for authorization
+            do_user_authorization_process(user,chat_id, msg)
+
+        else:
+            #This is a normal message
+            handle_one_message_in_the_group(user, msg)
 
     
     elif msg.is_channel:
@@ -593,6 +602,214 @@ def handle_one_message(msg: Message):
 #             connection_between_players.add_to_waiting_queue(user.chat_id, user.username, user.sex, gender_filter, is_pro)    
 #             print(msg.chat_id, "Added to queue!")
 #             keypad.send_message_with_keypad(msg.chat_id, lang.get_text("stranger"), get_cancel_the_search_keydata())
+
+def do_user_authorization_process(user:LocalUser, chat_id, msg:Message):
+
+        
+    apiClient.delete_message(chat_id,msg.message_id)
+
+    if user:
+        # activation process
+        try:
+            user_mgr.activate_user(user)
+            keypad.send_message_with_keypad(user.chat_id, lang.get_text("the_activation_process_was_successful", user.language),get_main_page_keydata())
+            apiClient.send_message(AUTHORIZE_GROUP_CHAT_ID, lang.get_text("the_activation_process_was_successful", user.language))
+        except Exception as e:
+            print(e.__format__(traceback))
+
+    else:
+        apiClient.send_message(AUTHORIZE_GROUP_CHAT_ID, lang.get_text("the_activation_process_was_not_successful_you_must_first_sign_up", user.language))
+
+
+def handle_one_message_in_the_group(user: LocalUser, msg: Message):
+    """
+    Handle messages in group chats - only processes game-related commands
+    and ignores all other messages. Uses send_message only (no keypads).
+    """
+
+    chat_id = msg.chat_id
+    
+    if not group_game_manager:
+        send_message_to_admin(f"❌ Group game manager is not defined. Chat: {msg.chat_id}, MsgID: {msg.message_id}")
+        return
+    
+    text = msg.text.strip() if msg.text else ""
+    
+    # ========================================
+    # Game-related commands only
+    # ========================================
+    
+    # List of game commands that should be processed
+    GAME_COMMANDS = {
+        "/game", "/go", "/end", "/status", "/leave",
+        "/truth", "/dare", "/ask", "/done", "/skip", "/gamehelp", "هستم"
+    }
+    
+    # Check for commands with arguments like /answer something
+    is_answer_command = text.startswith("/answer ")
+    is_addq_command = text.startswith("/addq ")
+    
+    # If message is not a game command, ignore it completely
+    if not (text in GAME_COMMANDS or is_answer_command or is_addq_command):
+        # Check if user is in pending question state (after /ask) - special case
+        game = group_game_manager.active_games.get(chat_id)
+        if not (game and game.pending_action and game.current_turn == msg.sender_id):
+            # Ignore - not a game message
+            return
+    
+    # ========================================
+    # Check if user is active (only for commands)
+    # ========================================
+    if not user.is_active:
+        apiClient.send_message(
+            chat_id, 
+            lang.get_text("you_must_join_the_group_and_send_a_message_to_activate_the_bot", user.language).format(
+                GROUP_LINK=AUTHORIZE_GROUP_LINK
+            )
+        )
+        return
+    
+    # Get display name using available fields
+    
+    display_name = f"{user.display_name()} ( @{user.username if user.username else ''} )".strip()
+    sender_id = msg.sender_id
+    
+    # ========================================
+    # Process Game Commands (Only send_message, no keypads)
+    # ========================================
+    
+    # Help command
+    if text == "/gamehelp":
+        help_text = (
+                        "🎮 **راهنمای بازی گروهی** 🎮\n\n"
+                        "📋 **دستورات:**\n"
+                        "• `/game` - شروع بازی جدید (میزبان)\n"
+                        "• `هستم` - پیوستن به بازی\n"
+                        "• `/go` - شروع بازی (فقط میزبان)\n"
+                        "• `/status` - مشاهده وضعیت بازی\n"
+                        "• `/truth` - انتخاب حقیقت (در نوبت خود)\n"
+                        "• `/dare` - انتخاب جرعت (در نوبت خود)\n"
+                        "• `/ask` - پرسیدن سوال از گروه\n"
+                        "• `/answered` - ثبت پاسخ (پس از پاسخ به سوال حقیقت)\n"
+                        "• `/done` - تکمیل چالش جرعت\n"
+                        "• `/answer <متن>` - پاسخ به سوال دیگران\n"
+                        "• `/skip` - رد کردن نوبت (کاهش امتیاز)\n"
+                        "• `/leave` - خروج از بازی\n"
+                        "• `/end` - پایان بازی (فقط میزبان)\n\n"
+                        "💡 **نکات:**\n"
+                        "• فقط میزبان می‌تواند بازی را شروع و پایان دهد\n"
+                        "• حداقل ۲ بازیکن برای شروع بازی نیاز است\n"
+                        "• به هر پاسخ ۵ تا ۱۵ امتیاز تعلق می‌گیرد\n"
+                        "• رد کردن نوبت ۵ امتیاز از دست می‌دهد\n"
+                        "• بازی گروهی فقط در گروه‌ها قابل انجام است"
+                    )
+        apiClient.send_message(chat_id, help_text)
+        return
+    
+    # Answered command (confirm answer for truth/dare)
+    if text == "/answered":
+        success, response = group_game_manager.handle_answered(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Start new game (host)
+    if text == "/game":
+        success, response = group_game_manager.create_game(chat_id, sender_id, display_name)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Join game
+    if text == "هستم":
+        success, response = group_game_manager.add_player(chat_id, sender_id, msg.sender_username, display_name)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Leave game
+    if text == "/leave":
+        success, response = group_game_manager.remove_player(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Start the game (host only)
+    if text == "/go":
+        success, response = group_game_manager.start_game(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # End game (host only)
+    if text == "/end":
+        success, response = group_game_manager.end_game(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Game status
+    if text == "/status":
+        status = group_game_manager.get_game_status(chat_id)
+        apiClient.send_message(chat_id, status)
+        return
+    
+    # Truth command
+    if text == "/truth":
+        success, response = group_game_manager.handle_truth(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Dare command
+    if text == "/dare":
+        success, response = group_game_manager.handle_dare(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Ask command (custom question)
+    if text == "/ask":
+        success, response = group_game_manager.handle_ask(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Done command (complete dare)
+    if text == "/done":
+        success, response = group_game_manager.handle_done(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Skip command (skip turn)
+    if text == "/skip":
+        success, response = group_game_manager.handle_skip(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Answer command (answer a question)
+    if text.startswith("/answer "):
+        answer = text[8:]  # Remove "/answer "
+        if not answer.strip():
+            apiClient.send_message(chat_id, "❌ لطفاً پاسخ خود را بعد از /answer بنویسید.\nمثال: `/answer پاسخ من`")
+            return
+        success, response = group_game_manager.handle_answer(chat_id, sender_id, answer)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Add custom question command
+    if text.startswith("/addq "):
+        question = text[6:]  # Remove "/addq "
+        if not question.strip():
+            apiClient.send_message(chat_id, "❌ لطفاً سوال خود را بعد از /addq بنویسید.\nمثال: `/addq سوال من`")
+            return
+        success, response = group_game_manager.add_custom_question(chat_id, sender_id, question)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Custom question text (after /ask)
+    game = group_game_manager.active_games.get(chat_id)
+    if game and game.pending_action and game.current_turn == sender_id:
+        if not text.strip():
+            apiClient.send_message(chat_id, "❌ لطفاً یک سوال معتبر بپرسید.")
+            return
+        success, response = group_game_manager.handle_custom_question(chat_id, sender_id, text)
+        apiClient.send_message(chat_id, response)
+        return    
+
+def send_message_to_admin(text):
+    apiClient.send_message(CHAT_ID_ADMIN, text)
 
 def report_to_rubika(user_id: str, chat_id: str):
     """
