@@ -271,7 +271,7 @@ class GroupGameManager:
         # Start inactivity monitor if not already started
         self.start_inactivity_monitor()
         
-        return True, f"🎮 بازی جدید ایجاد شد!\n\n📝 قوانین:\n• کاربران برای پیوستن: 'هستم' بفرستند\n• میزبان بازی با /go بازی را شروع می‌کند\n• هر بازیکن می‌تواند حقیقت، جرعت یا سوال از گروه انتخاب کند\n• به هر پاسخ امتیاز تعلق می‌گیرد\n\n👑 شما میزبان بازی هستید و به عنوان بازیکن اضافه شدید!\n👥 بازیکنان فعلی: {formatted_name}"
+        return True, f"🎮 بازی جدید ایجاد شد!\n\n با فرستادن /gamehelp می توانید تمام دستورات بازی را مشاهده کنید. \n📝 قوانین:\n• کاربران برای پیوستن: 'هستم' بفرستند\n• میزبان بازی با /go بازی را شروع می‌کند\n • هر بازیکن می‌تواند حقیقت، جرعت یا سوال از گروه انتخاب کند\n• به هر پاسخ امتیاز تعلق می‌گیرد\n\n👑 شما میزبان بازی هستید و به عنوان بازیکن اضافه شدید!\n👥 بازیکنان فعلی: {formatted_name}"
 
     def add_player(self, group_id: str, user_id: str, username: str, 
                 display_name: str, first_name: str = "", last_name: str = "") -> Tuple[bool, str]:

@@ -281,7 +281,7 @@ def handle_one_message(msg: Message):
 
     if msg.is_group:
 
-        if msg.chat_id == AUTHORIZE_GROUP_CHAT_ID and msg.text == lang.get_text("/activate"):
+        if msg.chat_id == AUTHORIZE_GROUP_CHAT_ID and msg.text == lang.get_text("/active"):
 
             if user == None:
                 apiClient.send_message(msg.chat_id, lang.get_text("you_are_not_a_user_first_sign_up_in_the_bot"), reply_to_message_id= msg.message_id)
@@ -484,6 +484,10 @@ def handle_one_message(msg: Message):
         products_kb = get_products_keypad()
         keypad.send_message_with_keypad(msg.chat_id, "🛒 محصولات:", products_kb)
 
+    elif msg.text == lang.get_text("/play_in_group", user_language):
+        message_to_send = lang.get_text("to_play_in_group_join_a_group_make_the_bot_admin_and_send_command_/game", user_language)
+        keydata = get_main_page_keydata()
+
     # Inside message handler:
     elif msg.text in PRODUCT_BUTTON_TO_ID:
         product_id = PRODUCT_BUTTON_TO_ID[msg.text]
@@ -546,63 +550,6 @@ def handle_one_message(msg: Message):
         keydata = None
         
 
-# def manual_check(self, user_id: str) -> dict:
-#     """Called when user types /check"""
-#     # Find the most recent pending payment for this user
-#     try:
-#         from models.payment import Payment
-#         payment = Payment.select().where(
-#             (Payment.user_id == user_id) & (Payment.status == 'pending')
-#         ).order_by(Payment.created_at.desc()).first()
-#     except Exception as e:
-#         return {'success': False, 'error': f'Database error: {e}'}
-
-#     if not payment:
-#         return {'success': False, 'error': 'No pending payment found'}
-
-#     result = Payment.verify_payment(payment.track_id)
-#     if result.get('success') and not result.get('already_paid'):
-#         # Grant the purchased items
-#         self._grant_purchase(payment)
-#         self._stop_polling_for_user(user_id)
-#     return result
-
-# def play_with_stranger(msg:Message, user:LocalUser, gender_filter:int = -1):
-#     is_pro = True if gender_filter != -1 else False
-
-#     # remove this user from waiting queue if it's already in
-#     if (connection_between_players.is_in_queue(msg.chat_id)):
-#         connection_between_players.remove_from_waiting_queue(msg.chat_id)
-#         print(msg.chat_id," removed from queue")
-#         print("size of queue after remove:",connection_between_players.get_queue_size())
-
-#     if(connection_between_players.get_queue_size() < 1):
-
-#         # Add if it's not already in the queue
-#         if not connection_between_players.is_in_queue(msg.chat_id):
-#             connection_between_players.set_user_preferences(msg.chat_id, user.sex, gender_filter, is_pro)
-#             connection_between_players.add_to_waiting_queue(msg.chat_id,msg.sender_id)
-#             print(msg.chat_id, "Added to queue!")
-#             keypad.send_message_with_keypad(msg.chat_id, lang.get_text("stranger"), get_cancel_the_search_keydata())
-
-#         # Add the user to the searching list
-#         print(connection_between_players.get_queue_size(),"This is the new queue size")
-    
-#     else:
-#         connection_between_players.set_user_preferences(user.chat_id, user.sex, gender_filter, is_pro)
-#         random_pair = connection_between_players.pair_random(msg.chat_id, msg.sender_id)
-#         # Connect the user to another waiting player
-#         if random_pair != None:
-#             connected_player_chat_id, connected_player_username = random_pair
-
-#             # Send message to both connected players that they're connected now!
-#             keypad.send_message_with_keypad(connected_player_chat_id, lang.get_text("you_were_in_queue_and_now_connected_to_somebody"),get_keydata_player_connected())            
-#             keypad.send_message_with_keypad(msg.chat_id, lang.get_text("you_are_now_connected_to_somebody"),get_keydata_player_connected_with_truth_dare())        
-#         else:
-#             connection_between_players.add_to_waiting_queue(user.chat_id, user.username, user.sex, gender_filter, is_pro)    
-#             print(msg.chat_id, "Added to queue!")
-#             keypad.send_message_with_keypad(msg.chat_id, lang.get_text("stranger"), get_cancel_the_search_keydata())
-
 def do_user_authorization_process(user:LocalUser, chat_id, msg:Message):
 
         
@@ -660,6 +607,14 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     # ========================================
     # Check if user is active (only for commands)
     # ========================================
+
+    if user == None:
+        apiClient.send_message(
+            chat_id,
+            lang.get_text("you_are_not_a_user_first_sign_up_in_the_bot"),
+            reply_to_message_id=msg.message_id
+        )
+
     if not user.is_active:
         apiClient.send_message(
             chat_id, 
@@ -971,10 +926,10 @@ def get_main_page_keydata():
     key_play_with_stranger = keypad.create_simple_button(1, lang.get_text("play_with_stranger",user_language))
     key_play_with_girl = keypad.create_simple_button(2, lang.get_text("play_with_girl", user_language))
     key_play_with_boy = keypad.create_simple_button(3, lang.get_text("play_with_boy", user_language))
-    key_play_with_friend = keypad.create_simple_button(5, lang.get_text("play_with_friend",user_language))
+    key_play_in_group = keypad.create_simple_button(5, lang.get_text("/play_in_group",user_language))
     key_get_coin = keypad.create_simple_button(4, lang.get_text("get_coin"))
     key_buy_premium_account = keypad.create_simple_button(6, lang.get_text("buy_premium_account"))
-    row1 = keypad.create_keypad_row([key_play_with_stranger])
+    row1 = keypad.create_keypad_row([key_play_with_stranger, key_play_in_group])
     row2 = keypad.create_keypad_row([key_play_with_girl, key_play_with_boy])
     row3 = keypad.create_keypad_row([key_get_coin, key_buy_premium_account])
     keydata = keypad.build_keypad([row1,row2, row3])
