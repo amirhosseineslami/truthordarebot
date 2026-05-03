@@ -1,4 +1,6 @@
 from email import message
+
+from matplotlib import text
 from botApiClient import BotApiClient
 from keypad import Keypad
 import time
@@ -58,6 +60,7 @@ CHANNEL_INFORM_ADMIN = os.environ.get("CHANNEL_INFORM_ADMIN")
 
 AUTHORIZE_GROUP_LINK = os.environ.get("GROUP_LINK_MOSHAVERE")
 AUTHORIZE_GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID_MOSHAVERE")
+ADVERTISMENT_THRESHOLD = int(os.environ.get("ADVERTISMENT_THRESHOLD", 30))
 
 #payment manager
 from payment_manager import PaymentManager
@@ -75,6 +78,8 @@ for pid, info in PaymentManager.PRODUCTS.items():
 
 group_game_manager = init_group_game_manager(apiClient, user_mgr)
 
+
+advertisment_counter = {}
 
 async def main():
     while True:
@@ -204,7 +209,7 @@ def handle_one_message_threadsafe(msg: Message):
     except Exception as e:
         error_message = f"Error in thread for message {msg.message_id}: {traceback.format_exception(e).__str__()}"
         print(error_message)
-        apiClient.send_message(CHAT_ID_ADMIN, error_message)
+        send_message_to_admin(error_message)
         traceback.print_exc()
 
 def handle_one_message(msg: Message):
@@ -218,19 +223,24 @@ def handle_one_message(msg: Message):
     keydata = None
     message_to_send:str = None
         # Optionally enrich with chat info (first time only)
+
     if not msg._chat_info:
         msg = parser.enrich_message_with_chat(apiClient, msg, chat_cache)
-
-        print(f"📨 From: {msg.sender_display_name} ({msg.chat_id})")
+        print(f"📨 From: {msg.sender_display_name} ({msg._chat_info.title}) {msg.sender_username}:{msg.chat_id}")
         print(f"   Text: {msg.text}")
         print(f"   Type: {msg.get_chat_type()}")
         print(f"   Username: {msg.sender_username}")
+        print(f"   Time: {time.ctime(msg.time)}")
 
 
     # 1. Get user from DB (to check if already banned)
     if user_id or chat_id:
         try:
             user = user_mgr.get(user_id=user_id, chat_id=chat_id)  # returns LocalUser or None
+            if user:
+                user_language = user.language   
+                print(f"   Name: {user.display_name()}({user.username})")
+
         except Exception as e:
             print("User is not available:", user_id, chat_id)
     
@@ -497,7 +507,7 @@ def handle_one_message(msg: Message):
         if result['success']:
             keypad.send_message_with_keypad(msg.chat_id, f"💰 مبلغ {result['amount']:,} تومان\n🔗 برای پرداخت کلیک کنید:\n{result['payment_link']}\n\n⏳ لینک ۳۰ دقیقه معتبر است.\nبعد از پرداخت /check را بزنید یا منتظر بمانید.", get_check_purchase_keydata(user))
         else:
-            apiClient.send_message(CHAT_ID_ADMIN, f"❌ خطا: {result.get('error')}")            
+            send_message_to_admin(f"❌ Error creating purchase for user {user.user_id} ({user.chat_id}): {result.get('error')}")         
             apiClient.send_message(msg.chat_id, lang.get_text("purchase_is_not_available_now_try_later", user.language))
 
         # Check if there is any keypad to send
@@ -574,6 +584,8 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     Handle messages in group chats - only processes game-related commands
     and ignores all other messages. Uses send_message only (no keypads).
     """
+
+    advertisment_in_the_group(msg, user)
 
     chat_id = msg.chat_id
     
@@ -814,11 +826,27 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         success, response = group_game_manager.handle_dare_with_difficulty(chat_id, sender_id, difficulty)
         apiClient.send_message(chat_id, response)
         return
-    
-    # Ask command (custom question)
+        
+        
+    # Ask command (custom question to specific player or current player)
     if text == "/ask":
-        success, response = group_game_manager.handle_ask(chat_id, sender_id)
+        # Ask the current player
+        success, response = group_game_manager.handle_ask(chat_id, sender_id, None)
         apiClient.send_message(chat_id, response)
+        return
+
+    if text.startswith("/ask @"):
+        # Ask a specific player (format: /ask @username)
+        target_mention = text[5:].strip()  # Remove "/ask "
+        # You'll need to resolve @username to user_id
+        # For now, you can extract the username
+        target_username = target_mention.lstrip('@')
+        # Find user by username (you'll need a helper function)
+        target_user = user_mgr.find_by_username(target_username)
+        if target_user:
+            success, response = group_game_manager.handle_ask(chat_id, sender_id, target_user.user_id)
+        else:
+            apiClient.send_message(chat_id, "❌ کاربر مورد نظر یافت نشد!")
         return
     
     # Done command (complete dare)
@@ -864,9 +892,25 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         return
     
 
+def advertisment_in_the_group(msg:Message, user: LocalUser):
+    # This function can be used to send periodic advertisements or messages in the group
+    # For example, you can send a message every hour about the bot's features or updates
+    global advertisment_counter
+    if msg.chat_id in advertisment_counter:
+        advertisment_counter[msg.chat_id] += 1
+        print(f"Advertisement counter{msg._chat_info.title}:", advertisment_counter[msg.chat_id])
+
+        if advertisment_counter[msg.chat_id] >= ADVERTISMENT_THRESHOLD:  # Adjust the threshold as needed
+            apiClient.send_message(msg.chat_id, lang.get_text("the_activation_process_was_successful"))
+            print(f"Advertisement sent to group {msg.chat_id}{msg._chat_info.title} after {advertisment_counter[msg.chat_id]} messages.")
+            advertisment_counter[msg.chat_id] = 0
+    else:
+        advertisment_counter[msg.chat_id] = 1
+        
+
 
 def send_message_to_admin(text):
-    apiClient.send_message(CHAT_ID_ADMIN, text)
+    apiClient.send_message(CHANNEL_INFORM_ADMIN, text)
 
 def report_to_rubika(user_id: str, chat_id: str):
     """
@@ -876,8 +920,7 @@ def report_to_rubika(user_id: str, chat_id: str):
     admin_chat_id = "admin_chat_id_here"   # Replace with your admin chat ID
     message = f"🚨 کاربر {user_id} به دلیل هرزنامه (flood) مسدود شد."
     try:
-        apiClient.send_message(CHAT_ID_ADMIN, message)
-        apiClient.send_message(CHANNEL_INFORM_ADMIN, message)
+        send_message_to_admin(message)
 
     except Exception as e:
         print(f"Could not send admin report: {e}")

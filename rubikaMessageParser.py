@@ -53,13 +53,13 @@ class Chat:
 
     @property
     def display_name(self) -> str:
-        if self.chat_type == "User":
+        if self.chat_type != "Channel":
             return self.first_name or self.username or self.user_id or self.chat_id
         return self.title or self.username or self.chat_id
 
     @property
     def full_name(self) -> str:
-        if self.chat_type == "User":
+        if self.chat_type != "Channel":
             return f"{self.first_name or ''} {self.last_name or ''}".strip() or self.username or self.user_id or self.chat_id
         return self.display_name
 
@@ -164,7 +164,7 @@ class Message:
     def attach_chat_info(self, chat: Chat):
         """Enrich the message with sender details from the chat object"""
         self._chat_info = chat
-        if chat.chat_type == "User":
+        if chat.chat_type == "Channel":
             self.sender_username = chat.username
             self.sender_first_name = chat.first_name
             self.sender_last_name = chat.last_name

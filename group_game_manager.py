@@ -59,11 +59,14 @@ class GroupGame:
     pending_action: Optional[TurnAction] = None
     pending_question: Optional[str] = None
     pending_difficulty: Optional[QuestionDifficulty] = None
+    pending_asker_id: Optional[str] = None  # New: who asked the question
+    pending_target_id: Optional[str] = None  # New: who should answer
     last_action_time: datetime = field(default_factory=datetime.now)
     created_at: datetime = field(default_factory=datetime.now)
-    warning_sent: bool = False  # Track if warning message has been sent
-    allow_custom_questions: bool = True  # Host can disable custom questions
+    warning_sent: bool = False
+    allow_custom_questions: bool = True
 
+    
 # ============================================
 # Truth & Dare Questions Database with Tiers
 # ============================================
@@ -619,46 +622,7 @@ class GroupGameManager:
         
         return True, f"چالش جرعت ({diff.value}) ارسال شد!"
 
-    def handle_answered(self, group_id: str, user_id: str) -> Tuple[bool, str]:
-        """Handle /answered command - award points based on difficulty"""
-        game = self._get_user_game(user_id, group_id)
-        if not game:
-            return False, "❌ شما در بازی نیستید!"
-        
-        self.update_activity(group_id)
-        
-        if game.current_turn != user_id:
-            current = game.players.get(game.current_turn)
-            return False, f"❌ نوبت {current.display_name if current else 'دیگری'} است!"
-        
-        player = game.players[user_id]
-        
-        if not player.has_answered:
-            return False, "❌ سوالی برای پاسخ وجود ندارد! ابتدا /truth بفرستید."
-        
-        if game.pending_action == TurnAction.TRUTH:
-            # Get points based on difficulty
-            difficulty = game.pending_difficulty or QuestionDifficulty.EASY
-            points = DIFFICULTY_SETTINGS[difficulty]['points']
-            
-            player.score += points
-            player.turn_count += 1
-            player.has_answered = False
-            game.pending_action = None
-            game.pending_question = None
-            game.pending_difficulty = None
-            
-            self.api_client.send_message(
-                group_id,
-                f"✅ {player.display_name} به سوال حقیقت پاسخ داد و {points} امتیاز گرفت!"
-            )
-            
-            self._next_turn(group_id)
-            return True, f"پاسخ ثبت شد! {points} امتیاز گرفتید."
-        
-        else:
-            return False, "❌ هیچ سوالی در انتظار پاسخ نیست!"
-
+    
     def handle_done(self, group_id: str, user_id: str) -> Tuple[bool, str]:
         """Handle /done command - award points based on difficulty"""
         game = self._get_user_game(user_id, group_id)
@@ -726,7 +690,113 @@ class GroupGameManager:
         return True, f"نوبت رد شد! {penalty} امتیاز از دست دادید."
 
 
-    def handle_ask(self, group_id: str, user_id: str) -> Tuple[bool, str]:
+    def handle_ask(self, group_id: str, user_id: str, target_user_id: str = None) -> Tuple[bool, str]:
+        """
+        Handle /ask command - any player can ask a question to the current player.
+        - If no target specified, asks the current player (default behavior)
+        - The asker can specify a target player
+        - Points awarded based on difficulty (max 15 for hard questions)
+        """
+        game = self._get_user_game(user_id, group_id)
+        if not game:
+            return False, "❌ شما در بازی نیستید!"
+        
+        self.update_activity(group_id)
+        
+        # Check if game is in progress
+        if game.state != GameState.IN_PROGRESS:
+            return False, "❌ بازی در جریان نیست!"
+        
+        # Determine target (current player by default)
+        target_id = target_user_id
+        if not target_id:
+            target_id = game.current_turn
+        
+        # Check if target exists in game
+        if target_id not in game.players:
+            return False, "❌ بازیکن مورد نظر در بازی نیست!"
+        
+        target_player = game.players[target_id]
+        asker_player = game.players[user_id]
+        
+        # Check if allowing custom questions
+        if not game.allow_custom_questions:
+            return False, "❌ میزبان سوالات سفارشی را غیرفعال کرده است!"
+        
+        # Check if target has already answered this turn
+        if target_player.has_answered:
+            return False, f"❌ {target_player.display_name} قبلاً به این نوبت پاسخ داده است!"
+        
+        # Prevent asking self
+        if user_id == target_id:
+            return False, "❌ نمی‌توانید از خودتان سوال بپرسید!"
+        
+        # Store asker info for this custom question
+        game.pending_action = TurnAction.ASK
+        game.pending_question = None
+        game.pending_asker_id = user_id  # Store who asked
+        game.pending_target_id = target_id  # Store who should answer
+        game.last_action_time = datetime.now()
+        
+        self.api_client.send_message(
+            group_id,
+            f"❓ {asker_player.display_name} از {target_player.display_name} سوال می‌پرسد!\n\n"
+            f"@{asker_player.display_name}، لطفاً سوال خود را بفرستید.\n"
+            f"(حداکثر 500 کاراکتر - سوال سخت = ۱۵ امتیاز)"
+        )
+        
+        return True, "سوال خود را بپرسید"
+
+
+    def handle_custom_question(self, group_id: str, user_id: str, question: str) -> Tuple[bool, str]:
+        """
+        Handle custom question from user who used /ask to ask the target player.
+        Points: 15 for hard questions (can be judged by host or all players)
+        """
+        game = self._get_user_game(user_id, group_id)
+        if not game:
+            return False, "❌ شما در بازی نیستید!"
+        
+        if game.pending_action != TurnAction.ASK:
+            return False, "❌ درخواست سوال فعالی وجود ندارد!"
+        
+        if game.pending_asker_id != user_id:
+            return False, "❌ شما کسی نیستید که درخواست سوال داده بود!"
+        
+        self.update_activity(group_id)
+        
+        asker_player = game.players[user_id]
+        target_id = game.pending_target_id
+        target_player = game.players[target_id]
+        
+        if len(question) > 500:
+            return False, "❌ سوال شما خیلی طولانی است (حداکثر 500 کاراکتر)."
+        
+        # Store the custom question
+        game.pending_question = question
+        game.pending_action = None
+        game.last_action_time = datetime.now()
+        
+        # Mark that target now has a pending question to answer
+        target_player.has_answered = True  # Mark that they need to answer
+        
+        self.api_client.send_message(
+            group_id,
+            f"❓ **سوال از {target_player.display_name} توسط {asker_player.display_name}:**\n\n"
+            f"{question}\n\n"
+            f"🔄 {target_player.display_name}، لطفاً برای پاسخ از `/answered` استفاده کنید.\n"
+            f"پاسخ به این سوال ۱۵ امتیاز دارد! (سوال سخت)\n"
+            f"📌 برای رد کردن نوبت: `/skip` (۵ امتیاز از دست می‌دهد)"
+        )
+        
+        return True, "سوال شما ارسال شد!"
+
+
+    def handle_answered(self, group_id: str, user_id: str) -> Tuple[bool, str]:
+        """
+        Handle /answered command - player confirms they have answered the question.
+        Points: 15 for custom questions, or based on difficulty for truth/dare.
+        """
         game = self._get_user_game(user_id, group_id)
         if not game:
             return False, "❌ شما در بازی نیستید!"
@@ -735,50 +805,74 @@ class GroupGameManager:
         
         if game.current_turn != user_id:
             current = game.players.get(game.current_turn)
-            return False, f"❌ نوبت {current.display_name if current else 'دیگری'} است!"
-        
-        if not game.allow_custom_questions:
-            return False, "❌ میزبان سوالات سفارشی را غیرفعال کرده است!"
+            return False, f"❌ نوبت شما نیست! نوبت {current.display_name if current else 'دیگری'} است."
         
         player = game.players[user_id]
         
-        if player.has_answered:
-            return False, "❌ قبلاً پاسخ داده‌اید!"
+        if not player.has_answered:
+            return False, "❌ هیچ سوالی برای پاسخ وجود ندارد! ابتدا با /truth, /dare یا /ask سوال دریافت کنید."
         
-        game.pending_action = TurnAction.ASK
-        game.last_action_time = datetime.now()
+        # Check what type of action is pending or if it's a custom question
+        if game.pending_action == TurnAction.TRUTH:
+            # Truth question with difficulty
+            difficulty = game.pending_difficulty or QuestionDifficulty.EASY
+            points = DIFFICULTY_SETTINGS[difficulty]['points']
+            
+            player.score += points
+            player.turn_count += 1
+            player.has_answered = False
+            game.pending_action = None
+            game.pending_question = None
+            game.pending_difficulty = None
+            
+            self.api_client.send_message(
+                group_id,
+                f"✅ {player.display_name} به سوال حقیقت پاسخ داد و {points} امتیاز گرفت!"
+            )
+            
+            self._next_turn(group_id)
+            return True, f"پاسخ ثبت شد! {points} امتیاز گرفتید."
         
-        self.api_client.send_message(
-            group_id,
-            f"❓ {player.display_name} می‌خواهد سوال بپرسد!\nلطفاً سوال خود را بفرستید."
-        )
+        elif game.pending_action == TurnAction.DARE:
+            # Dare challenge with difficulty
+            difficulty = game.pending_difficulty or QuestionDifficulty.EASY
+            points = DIFFICULTY_SETTINGS[difficulty]['points']
+            
+            player.score += points
+            player.turn_count += 1
+            player.has_answered = False
+            game.pending_action = None
+            game.pending_question = None
+            game.pending_difficulty = None
+            
+            self.api_client.send_message(
+                group_id,
+                f"✅ {player.display_name} چالش جرعت را انجام داد و {points} امتیاز گرفت!"
+            )
+            
+            self._next_turn(group_id)
+            return True, f"چالش ثبت شد! {points} امتیاز گرفتید."
         
-        return True, "سوال خود را بپرسید"
-
-    def handle_custom_question(self, group_id: str, user_id: str, question: str) -> Tuple[bool, str]:
-        game = self._get_user_game(user_id, group_id)
-        if not game:
-            return False, "❌ شما در بازی نیستید!"
+        else:
+            # Custom question from another player - always 15 points
+            points = 15
+            
+            player.score += points
+            player.turn_count += 1
+            player.has_answered = False
+            game.pending_action = None
+            game.pending_question = None
+            game.pending_asker_id = None
+            game.pending_target_id = None
+            
+            self.api_client.send_message(
+                group_id,
+                f"✅ {player.display_name} به سوال {game.players.get(game.pending_asker_id, player).display_name if hasattr(game, 'pending_asker_id') and game.pending_asker_id else 'دیگری'} پاسخ داد و {points} امتیاز گرفت!"
+            )
+            
+            self._next_turn(group_id)
+            return True, f"پاسخ ثبت شد! {points} امتیاز گرفتید!"
         
-        if game.pending_action != TurnAction.ASK or game.current_turn != user_id:
-            return False, "❌ درخواست سوال ندارید!"
-        
-        self.update_activity(group_id)
-        
-        player = game.players[user_id]
-        
-        game.pending_question = question
-        game.pending_action = None
-        game.last_action_time = datetime.now()
-        player.has_answered = True
-        
-        self.api_client.send_message(
-            group_id,
-            f"❓ **سوال {player.display_name}:**\n{question}\n\n"
-            f"بازیکنان می‌توانند با /answer پاسخ دهند!"
-        )
-        
-        return True, "سوال شما ارسال شد!"
 
     def handle_answer(self, group_id: str, user_id: str, answer_text: str) -> Tuple[bool, str]:
         game = self.active_games.get(group_id)
