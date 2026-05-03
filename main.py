@@ -568,6 +568,7 @@ def do_user_authorization_process(user:LocalUser, chat_id, msg:Message):
         apiClient.send_message(AUTHORIZE_GROUP_CHAT_ID, lang.get_text("the_activation_process_was_not_successful_you_must_first_sign_up", user.language))
 
 
+
 def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     """
     Handle messages in group chats - only processes game-related commands
@@ -586,18 +587,28 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     # Game-related commands only
     # ========================================
     
-    # List of game commands that should be processed
+    # List of game commands that should be processed (including new host commands)
     GAME_COMMANDS = {
         "/game", "/go", "/end", "/status", "/leave",
-        "/truth", "/dare", "/ask", "/done", "/skip", "/gamehelp", "هستم"
+        "/truth", "/dare", "/ask", "/done", "/skip", "/gamehelp", "هستم",
+        "/answered", "/host_skip", "/host_add_points", "/host_end", 
+        "/host_next", "/host_kick", "/host_limit"
     }
     
-    # Check for commands with arguments like /answer something
+    # Check for commands with arguments like /answer something, /truth easy, /truth medium, /truth hard
     is_answer_command = text.startswith("/answer ")
+    is_truth_with_difficulty = text.startswith("/truth ")
+    is_dare_with_difficulty = text.startswith("/dare ")
     is_addq_command = text.startswith("/addq ")
+    is_host_add_points = text.startswith("/host_add_points ")
+    is_host_skip = text.startswith("/host_skip ")
+    is_host_kick = text.startswith("/host_kick ")
+    is_host_limit = text.startswith("/host_limit ")
     
     # If message is not a game command, ignore it completely
-    if not (text in GAME_COMMANDS or is_answer_command or is_addq_command):
+    if not (text in GAME_COMMANDS or is_answer_command or is_addq_command or 
+            is_truth_with_difficulty or is_dare_with_difficulty or
+            is_host_add_points or is_host_skip or is_host_kick or is_host_limit):
         # Check if user is in pending question state (after /ask) - special case
         game = group_game_manager.active_games.get(chat_id)
         if not (game and game.pending_action and game.current_turn == msg.sender_id):
@@ -608,12 +619,13 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     # Check if user is active (only for commands)
     # ========================================
 
-    if user == None:
+    if user is None:
         apiClient.send_message(
             chat_id,
             lang.get_text("you_are_not_a_user_first_sign_up_in_the_bot"),
             reply_to_message_id=msg.message_id
         )
+        return
 
     if not user.is_active:
         apiClient.send_message(
@@ -625,43 +637,119 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         return
     
     # Get display name using available fields
-    
-    display_name = f"{user.display_name()} ( @{user.username if user.username else ''} )".strip()
+    username_part = f" @{user.username}" if user.username else ""
+    display_name = f"{user.display_name()}{username_part}".strip()
     sender_id = msg.sender_id
     
     # ========================================
-    # Process Game Commands (Only send_message, no keypads)
+    # Process Game Commands
     # ========================================
     
     # Help command
     if text == "/gamehelp":
         help_text = (
-                        "🎮 **راهنمای بازی گروهی** 🎮\n\n"
-                        "📋 **دستورات:**\n"
-                        "• `/game` - شروع بازی جدید (میزبان)\n"
-                        "• `هستم` - پیوستن به بازی\n"
-                        "• `/go` - شروع بازی (فقط میزبان)\n"
-                        "• `/status` - مشاهده وضعیت بازی\n"
-                        "• `/truth` - انتخاب حقیقت (در نوبت خود)\n"
-                        "• `/dare` - انتخاب جرعت (در نوبت خود)\n"
-                        "• `/ask` - پرسیدن سوال از گروه\n"
-                        "• `/answered` - ثبت پاسخ (پس از پاسخ به سوال حقیقت)\n"
-                        "• `/done` - تکمیل چالش جرعت\n"
-                        "• `/answer <متن>` - پاسخ به سوال دیگران\n"
-                        "• `/skip` - رد کردن نوبت (کاهش امتیاز)\n"
-                        "• `/leave` - خروج از بازی\n"
-                        "• `/end` - پایان بازی (فقط میزبان)\n\n"
-                        "💡 **نکات:**\n"
-                        "• فقط میزبان می‌تواند بازی را شروع و پایان دهد\n"
-                        "• حداقل ۲ بازیکن برای شروع بازی نیاز است\n"
-                        "• به هر پاسخ ۵ تا ۱۵ امتیاز تعلق می‌گیرد\n"
-                        "• رد کردن نوبت ۵ امتیاز از دست می‌دهد\n"
-                        "• بازی گروهی فقط در گروه‌ها قابل انجام است"
-                    )
+            "🎮 **راهنمای بازی گروهی** 🎮\n\n"
+            "📋 **دستورات عمومی:**\n"
+            "• `/game` - شروع بازی جدید (میزبان)\n"
+            "• `هستم` - پیوستن به بازی\n"
+            "• `/go` - شروع بازی (فقط میزبان)\n"
+            "• `/status` - مشاهده وضعیت بازی\n"
+            "• `/leave` - خروج از بازی\n"
+            "• `/end` - پایان بازی (فقط میزبان)\n\n"
+            "🎲 **دستورات نوبت:**\n"
+            "• `/truth` - حقیقت معمولی (۵ امتیاز)\n"
+            "• `/truth easy` - حقیقت آسان (۵ امتیاز)\n"
+            "• `/truth medium` - حقیقت متوسط (۱۰ امتیاز)\n"
+            "• `/truth hard` - حقیقت سخت (۱۵ امتیاز)\n"
+            "• `/dare` - جرعت معمولی (۵ امتیاز)\n"
+            "• `/dare easy` - جرعت آسان (۵ امتیاز)\n"
+            "• `/dare medium` - جرعت متوسط (۱۰ امتیاز)\n"
+            "• `/dare hard` - جرعت سخت (۱۵ امتیاز)\n"
+            "• `/ask` - پرسیدن سوال از گروه\n"
+            "• `/answered` - ثبت پاسخ (پس از پاسخ به سوال حقیقت)\n"
+            "• `/done` - تکمیل چالش جرعت\n"
+            "• `/skip` - رد کردن نوبت (کاهش ۵ امتیاز)\n\n"
+            "💬 **دستورات پاسخ:**\n"
+            "• `/answer <متن>` - پاسخ به سوال دیگران\n"
+            "• `/addq <سوال>` - اضافه کردن سوال به بازی\n\n"
+            "👑 **دستورات میزبان:**\n"
+            "• `/host_skip @user` - رد کردن نوبت هر بازیکن\n"
+            "• `/host_add_points @user 10` - اضافه/کم کردن امتیاز (بین -20 تا +50)\n"
+            "• `/host_end` - پایان فوری بازی\n"
+            "• `/host_next` - اجبار به نوبت بعدی\n"
+            "• `/host_kick @user` - اخراج بازیکن از بازی\n"
+            "• `/host_limit easy/medium/hard` - محدودیت سطح سختی\n\n"
+            "💡 **نکات:**\n"
+            "• فقط میزبان می‌تواند بازی را شروع و پایان دهد\n"
+            "• حداقل ۲ بازیکن برای شروع بازی نیاز است\n"
+            "• به هر پاسخ بر اساس سطح سختی امتیاز تعلق می‌گیرد\n"
+            "• رد کردن نوبت ۵ امتیاز از دست می‌دهد\n"
+            "• بازی گروهی فقط در گروه‌ها قابل انجام است"
+        )
         apiClient.send_message(chat_id, help_text)
         return
     
-    # Answered command (confirm answer for truth/dare)
+    # ========================================
+    # Host Management Commands
+    # ========================================
+    
+    # Host skip player
+    if text.startswith("/host_skip "):
+        target = text[11:].strip()  # Remove "/host_skip "
+        # Extract user_id from mention or username
+        # You'll need to implement a helper to resolve @username to user_id
+        # For simplicity, assume target is user_id or mention
+        success, response = group_game_manager.host_skip_player(chat_id, sender_id, target)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Host add points
+    if text.startswith("/host_add_points "):
+        parts = text[17:].strip().split()
+        if len(parts) < 2:
+            apiClient.send_message(chat_id, "❌ استفاده: `/host_add_points @user امتیاز`")
+            return
+        target = parts[0]
+        try:
+            points = int(parts[1])
+        except ValueError:
+            apiClient.send_message(chat_id, "❌ امتیاز باید عدد باشد!")
+            return
+        success, response = group_game_manager.host_add_points(chat_id, sender_id, target, points)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Host end game immediately
+    if text == "/host_end":
+        success, response = group_game_manager.host_end_game_immediately(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Host force next turn
+    if text == "/host_next":
+        success, response = group_game_manager.host_force_next_turn(chat_id, sender_id)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Host kick player
+    if text.startswith("/host_kick "):
+        target = text[11:].strip()
+        success, response = group_game_manager.host_remove_player(chat_id, sender_id, target)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # Host set difficulty limit
+    if text.startswith("/host_limit "):
+        difficulty = text[12:].strip().lower()
+        success, response = group_game_manager.host_set_difficulty_limit(chat_id, sender_id, difficulty)
+        apiClient.send_message(chat_id, response)
+        return
+    
+    # ========================================
+    # Player Commands
+    # ========================================
+    
+    # Answered command (confirm answer for truth)
     if text == "/answered":
         success, response = group_game_manager.handle_answered(chat_id, sender_id)
         apiClient.send_message(chat_id, response)
@@ -703,15 +791,27 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         apiClient.send_message(chat_id, status)
         return
     
-    # Truth command
-    if text == "/truth":
-        success, response = group_game_manager.handle_truth(chat_id, sender_id)
+    # Truth command with optional difficulty
+    if text.startswith("/truth"):
+        difficulty = None
+        if len(text) > 6:  # "/truth " is 6 chars
+            difficulty = text[6:].strip().lower()
+            if difficulty not in ['easy', 'medium', 'hard']:
+                apiClient.send_message(chat_id, "❌ سطح نامعتبر! استفاده: `/truth easy`, `/truth medium`, `/truth hard`")
+                return
+        success, response = group_game_manager.handle_truth_with_difficulty(chat_id, sender_id, difficulty)
         apiClient.send_message(chat_id, response)
         return
     
-    # Dare command
-    if text == "/dare":
-        success, response = group_game_manager.handle_dare(chat_id, sender_id)
+    # Dare command with optional difficulty
+    if text.startswith("/dare"):
+        difficulty = None
+        if len(text) > 5:  # "/dare " is 5 chars
+            difficulty = text[5:].strip().lower()
+            if difficulty not in ['easy', 'medium', 'hard']:
+                apiClient.send_message(chat_id, "❌ سطح نامعتبر! استفاده: `/dare easy`, `/dare medium`, `/dare hard`")
+                return
+        success, response = group_game_manager.handle_dare_with_difficulty(chat_id, sender_id, difficulty)
         apiClient.send_message(chat_id, response)
         return
     
@@ -761,7 +861,9 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
             return
         success, response = group_game_manager.handle_custom_question(chat_id, sender_id, text)
         apiClient.send_message(chat_id, response)
-        return    
+        return
+    
+
 
 def send_message_to_admin(text):
     apiClient.send_message(CHAT_ID_ADMIN, text)
