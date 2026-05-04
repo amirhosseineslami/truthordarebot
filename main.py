@@ -17,7 +17,7 @@ import traceback
 from database import init_db
 import asyncio
 # After initializing apiClient, user_mgr, and keypad
-from group_game_manager import init_group_game_manager
+from group_game_manager_truth_dare import init_group_game_manager
 
 
 
@@ -50,7 +50,7 @@ chat_cache = {}   # simple cache to avoid repeated API calls
 COIN_INVITATION_NUMBER = 3
 CHAT_ID_ADMIN = os.environ.get('CHAT_ID_ADMIN', None)
 
-
+ADVERTISMENT_TIME_THRESHOLD = float(os.environ.get('ADVERTISMENT_TIME_THRESHOLD', 300))
 CHAT_ID_GROUP = os.environ.get('CHAT_ID_GROUP')
 
 
@@ -919,15 +919,16 @@ def advertisment_in_the_group(msg:Message, user: LocalUser):
     # For example, you can send a message every hour about the bot's features or updates
     global advertisment_counter
     if msg.chat_id in advertisment_counter:
-        advertisment_counter[msg.chat_id] += 1
+        advertisment_counter[msg.chat_id][0] += 1
         print(f"Advertisement counter{msg._chat_info.title}:", advertisment_counter[msg.chat_id])
 
-        if advertisment_counter[msg.chat_id] >= ADVERTISMENT_THRESHOLD:  # Adjust the threshold as needed
+        if advertisment_counter[msg.chat_id][0] >= ADVERTISMENT_THRESHOLD and time.time() > advertisment_counter[msg.chat_id][1] + ADVERTISMENT_TIME_THRESHOLD:  # Adjust the threshold as needed
             apiClient.send_message(msg.chat_id, lang.get_text("the_activation_process_was_successful"))
-            print(f"Advertisement sent to group {msg.chat_id}{msg._chat_info.title} after {advertisment_counter[msg.chat_id]} messages.")
-            advertisment_counter[msg.chat_id] = 0
+            send_message_to_admin(f"Advertisement sent to group {msg.chat_id}{msg._chat_info.title} after {advertisment_counter} messages.")
+            advertisment_counter[msg.chat_id][0] = 0
+            advertisment_counter[msg.chat_id][1] = time.time()
     else:
-        advertisment_counter[msg.chat_id] = 1
+        advertisment_counter[msg.chat_id] = [1, time.time()]
         
 
 
