@@ -151,7 +151,31 @@ HARD_TRUTH_QUESTIONS = {
         "عمیق‌ترین رازی که داری چیه؟",
         "آیا تا حالا کسی رو آزاری دادی؟",
         "بزرگترین ترس تو چیه؟",
-        "چیزی که هیچکس ازت نمیدونه رو بگو"
+        "چیزی که هیچکس ازت نمیدونه رو بگو",
+        "آیا تا حالا به همسرت / نامزدت خیانت کرده‌ای؟",
+        "کسی رو در طول زندگی به عمد تحقیر کرده‌ای؟ چرا و چطور؟",
+        "بزرگترین اشتباه عاشقانه‌ات چه بوده که هیچکس ازش خبر نداره؟",
+        "آیا تا حالا به خاطر پول یا موقعیت، رابطه‌ای رو حفظ کردی که دوستش نداشتی؟",
+        "بدترین کاری که تا حالا پشت سر کسی انجام دادی چه بوده؟",
+        "تا حالا به کسی که دوستت داره دروغ گفتی که دوستش داری؟",
+        "آیا از کسی که می‌دونه راز تو رو، متنفری؟",
+        "تا حالا شده از موفقیت کسی که دوستش داری خوشحال نشی؟",
+        "آیا تا حالا به کسی که بهت لطف کرده، جفا کردی؟",
+        "چه چیزی هست که اگر دیگران بفهمن، از تو متنفر می‌شن؟",
+        "آیا تا حالا کسی رو دست انداختی که از تو ضعیف‌تر بوده؟",
+        "بدترین حرفی که به کسی زدی چی بوده؟",
+        "آیا تا حالا با کسی فقط به خاطر ظاهرش وارد رابطه شدی؟",
+        "اگر الان بمیری، بزرگترین پشیمونیت چیه؟",
+        "به چه کسی بدترین دروغ زندگیت رو گفتی و اون هنوز باور داره؟",
+        "آیا تا حالا به کسی خیانت کردی که هیچوقت نفهمید؟",
+        "چیزی که از گفتنش به پدر و مادرت بیشترین ترس رو داری چی هست؟",
+        "تا حالا شده کسی رو از زندگیت حذف کنی بدون اینکه بهش بگی چرا؟",
+        "آیا از کسی که توی این چته، متنفری؟",
+        "کدوم اشتباهت رو تا حالا به کسی نگفتی؟",
+        "آیا تا حالا به عشق قبلیت بعد از رابطه جدیدت فکر کردی؟",
+        "آیا تا به حال به این فکر کردی که کاشکی یک نفر بمیره؟",
+        "چه چیزی توی زندگیت هست که اگر لو بره، همه چی از دست میدی؟",
+        "آیا تا حالا خودت رو جای کسی دیگه که نابود شده تصور کردی و خوشحال شدی؟"
     ],
     'en': [
         "What's the biggest lie you've told?",
@@ -159,7 +183,31 @@ HARD_TRUTH_QUESTIONS = {
         "What's your deepest secret?",
         "Have you ever hurt someone?",
         "What's your biggest fear?",
-        "Tell something nobody knows about you"
+        "Tell something nobody knows about you",
+        "Have you ever cheated on your partner/fiancé?",
+        "Have you ever deliberately humiliated someone? Why and how?",
+        "What's your biggest romantic mistake that no one knows about?",
+        "Have you ever stayed in a relationship for money or status even though you didn't love them?",
+        "What's the worst thing you've ever done behind someone's back?",
+        "Have you ever lied to someone who loves you, telling them you love them back?",
+        "Do you hate anyone who knows your secret?",
+        "Have you ever secretly been unhappy about a friend's success?",
+        "Have you ever betrayed someone who helped you?",
+        "What's something that would make people hate you if they found out?",
+        "Have you ever mocked someone weaker than you?",
+        "What's the worst thing you've ever said to someone?",
+        "Have you ever been in a relationship just for someone's looks?",
+        "If you died right now, what would be your biggest regret?",
+        "Who did you tell your biggest lie to, and they still believe it?",
+        "Have you ever cheated on someone who never found out?",
+        "What are you most afraid to tell your parents?",
+        "Have you ever cut someone out of your life without explaining why?",
+        "Do you secretly hate someone in this chat?",
+        "What mistake have you never told anyone about?",
+        "Have you ever thought about an ex while in a new relationship?",
+        "Have you ever wished someone would die?",
+        "What in your life, if revealed, would make you lose everything?",
+        "Have you ever imagined yourself in someone else's ruined situation and secretly felt happy?"
     ]
 }
 
@@ -169,14 +217,30 @@ HARD_DARE_ACTIONS = {
         "یه رقص انجام بده و ویدیو بفرست",
         "به گروه بگو بزرگترین پشیمونیت چیه",
         "با یه غریبه توی خیابون عکس بگیر و بفرست",
-        "به کسی که باهاش قهر بودی پیام بده و آشتی کن"
+        "به کسی که باهاش قهر بودی پیام بده و آشتی کن",
+        "با هفتمین شماره توی گوشیت تماس بگیر و یک آهنگ عاشقانه براش بخون",
+        "تلفنت رو بده یکی از گروه به دلخواه به هرکسی توی لیست تماس پیام بده",
+        "یک تماس ویدیویی با مامانت بگیر و بگو یه سوال دارم: 'من از نظر تو چقدر آدم صادقی هستم؟'",
+        "به یکی از دوستات که باهاش رابطه عمیق داری بگو ازت متنفر بوده‌ای اونم به خاطر یه چیز واقعی",
+        "پروفایل تلگرام/اینستاگرامت رو بذار رو حالت عمومی و بگو هرکی میتونه بیاد سه تا از بدترین کارات رو ازت بپرسه",
+        "برو پیش یه غریبه تو خیابون و بگو 'ببخشید من یه راز دارم میتونم به شما بگم؟' بعد راز واقعیت رو بگو و برو",
+        "ویس بفرست که داری گریه می‌کنی و بگو از دست کی ناراحتی (حتی اگه بازی باشه)",
+        "به کسی که دوسش داری بگو 'من بهت دروغ گفتم' بدون اینکه بگی چی"
     ],
     'en': [
         "Call someone you love and confess",
         "Do a dance and send a video",
         "Tell the group your biggest regret",
         "Take a photo with a stranger on the street and send it",
-        "Message someone you had a fight with and make up"
+        "Message someone you had a fight with and make up",
+        "Call the 7th contact in your phone and sing them a love song",
+        "Hand your phone to someone in the group – they can text anyone in your contacts",
+        "Video call your mom and ask: 'How honest of a person do you think I am?'",
+        "Tell a close friend you've secretly hated them for a real reason",
+        "Set your social media profile to public and let anyone ask you three of your worst actions",
+        "Approach a stranger on the street and say 'I have a secret, can I tell you?' then tell them a real secret and walk away",
+        "Send a voice message pretending to cry and say who hurt you (even if it's for the game)",
+        "Tell someone you love 'I lied to you' without saying what the lie was"
     ]
 }
 

@@ -77,9 +77,8 @@ for pid, info in PaymentManager.PRODUCTS.items():
 
 
 group_game_manager = init_group_game_manager(apiClient, user_mgr)
-
-
 advertisment_counter = {}
+
 
 async def main():
     while True:
@@ -218,6 +217,7 @@ def handle_one_message(msg: Message):
     user_id = msg.sender_id
     chat_id = msg.chat_id
     user = None
+    user_language = 'fa'
 
 
     keydata = None
@@ -291,7 +291,7 @@ def handle_one_message(msg: Message):
 
     if msg.is_group:
 
-        if msg.chat_id == AUTHORIZE_GROUP_CHAT_ID and msg.text == lang.get_text("/active"):
+        if msg.chat_id == AUTHORIZE_GROUP_CHAT_ID and msg.text == (lang.get_text("/active" or lang.get_text("/activate"))):
 
             if user == None:
                 apiClient.send_message(msg.chat_id, lang.get_text("you_are_not_a_user_first_sign_up_in_the_bot"), reply_to_message_id= msg.message_id)
@@ -309,10 +309,13 @@ def handle_one_message(msg: Message):
         if msg.chat_id == CHANNEL_INFORM_ADMIN:
             for user in user_mgr.get_all_users():
                 user:LocalUser = user
+                if user.chat_id != CHAT_ID_ADMIN:
+                    continue
+
                 try:
                     apiClient.send_message(user.chat_id, msg.text)
                 except Exception as e:
-                    report_to_rubika(user.user_id, user.chat_id)
+                    send_message_to_admin(f"{user.user_id}, {user.chat_id}")
         
 
     elif msg.text == lang.get_text("iam_girl", user_language):
@@ -531,6 +534,15 @@ def handle_one_message(msg: Message):
             print(f"Error in /check: {traceback.format_exception(e)}")
             apiClient.send_message(msg.chat_id, "❌ خطایی رخ داد. لطفاً بعداً تلاش کنید.")
 
+    elif msg.text == lang.get_text("/active", user_language):
+        if not user.is_active:
+            apiClient.send_message(msg.chat_id, lang.get_text("you_must_not_send_this_message_here_join_the_group_and_send_a_message_to_activate_the_bot", user.language).format(
+                GROUP_LINK=AUTHORIZE_GROUP_LINK
+            ))
+            return
+        else:
+            apiClient.send_message(msg.chat_id, lang.get_text("you_are_already_signed_up_use_the_bot", user_language))
+
     elif msg.text.startswith(lang.get_text("invite", user.language)):
         if user.level != 1:
             # The user is invited before!
@@ -593,7 +605,7 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         send_message_to_admin(f"❌ Group game manager is not defined. Chat: {msg.chat_id}, MsgID: {msg.message_id}")
         return
     
-    text = msg.text.strip() if msg.text else ""
+    text = msg.text.strip().lower() if msg.text else ""
     
     # ========================================
     # Game-related commands only
@@ -604,7 +616,7 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         "/game", "/go", "/end", "/status", "/leave",
         "/truth", "/dare", "/ask", "/done", "/skip", "/gamehelp", "هستم",
         "/answered", "/host_skip", "/host_add_points", "/host_end", 
-        "/host_next", "/host_kick", "/host_limit"
+        "/host_next", "/host_kick", "/host_limit", "فعال", "/start", "فعالسازی", "/command"
     }
     
     # Check for commands with arguments like /answer something, /truth easy, /truth medium, /truth hard
@@ -639,14 +651,6 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
         )
         return
 
-    if not user.is_active:
-        apiClient.send_message(
-            chat_id, 
-            lang.get_text("you_must_join_the_group_and_send_a_message_to_activate_the_bot", user.language).format(
-                GROUP_LINK=AUTHORIZE_GROUP_LINK
-            )
-        )
-        return
     
     # Get display name using available fields
     username_part = f" @{user.username}" if user.username else ""
@@ -656,9 +660,27 @@ def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     # ========================================
     # Process Game Commands
     # ========================================
+
+
+    # Help command
+    if  text == "/help" or text == "/gamehelp" or text == "فعال" or text == "فعالسازی" or text == "/start":
+        help_text = (
+            "🎮 **راهنمای بازی گروهی** 🎮\n\n"
+            "📋 **دستورات عمومی:**\n"
+            "• `/game` - شروع بازی جدید (میزبان)\n"
+            "• `هستم` - پیوستن به بازی\n"
+            "• `/go` - شروع بازی (فقط میزبان)\n"
+            "• `/status` - مشاهده وضعیت بازی\n"
+            "• `/leave` - خروج از بازی\n"
+            "• `/end` - پایان بازی (فقط میزبان)\n\n"
+            "🎲 برای دریافت همه دستورات /command را ارسال کنید.\n"
+        )
+        apiClient.send_message(chat_id, help_text)
+        return
+    
     
     # Help command
-    if text == "/gamehelp":
+    if text.startswith("/command"):
         help_text = (
             "🎮 **راهنمای بازی گروهی** 🎮\n\n"
             "📋 **دستورات عمومی:**\n"

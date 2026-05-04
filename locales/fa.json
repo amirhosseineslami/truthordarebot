@@ -63,6 +63,7 @@
   "products" : "محصولات:",
   "the_activation_process_was_successful" : "فعالسازی ربات با موفقیت انجام شد.✅\nدستور /game رو بفرست تا بازی گروهی رو شروع کنی  .",
   "you_must_join_the_group_and_send_a_message_to_activate_the_bot" : "شما باید عضو گروه شوید و با فرستادن پیام /active در گروه، ربات را فعال کنید. \nتوجه: پیام شما در گروه پس از احراز هویت پاک می شود. \n لینک گروه: {GROUP_LINK}",
+  "you_must_not_send_this_message_here_join_the_group_and_send_a_message_to_activate_the_bot" : "شما نباید این پیام را اینجا بفرستید. لطفاً عضو گروه شوید و با فرستادن پیام /active در گروه، ربات را فعال کنید. \nتوجه: پیام شما در گروه پس از احراز هویت پاک می شود. \n لینک گروه: {GROUP_LINK}",
   "the_activation_process_was_not_successful_you_must_first_sign_up" : "فعالسازی انجام نشد. شما باید ابتدا به ربات پیام داده و ثبت نام خود را تکمیل کنید.‼️",
   "you_are_not_a_user_first_sign_up_in_the_bot" : "شما کاربر ربات نیستید. لطفا ابتدا به ربات پیام داده و در ربات ثبت نام کنید.",
   "to_play_in_group_join_a_group_make_the_bot_admin_and_send_command_/game" : "برای بازی در گروه، ربات را به یک گروه اضافه کنید، ربات را مدیر کنید و دستور /game را ارسال کنید.",
