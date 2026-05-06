@@ -212,6 +212,7 @@ class ChatInfoResponse:
 # Main Parser Class
 # ------------------------------
 class RubikaParser:
+    
     @staticmethod
     def _ensure_dict(data):
         """Convert JSON string to dict if needed."""
