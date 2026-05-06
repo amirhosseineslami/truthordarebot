@@ -1,10 +1,10 @@
 import threading
 import time
 from typing import Dict, Optional
-from models.payment import Payment
-from zibal_helper import check_zibal_payment
-from models.sync_manager import SyncManager,UserManager
-import database 
+from bot.models.payment import Payment
+from bot.services.payment_service import check_zibal_payment
+from bot.models.sync_manager import SyncManager,UserManager
+import bot.models.database as database 
 
 class PaymentManager:
     def __init__(self, sync_manager:SyncManager, user_manager:UserManager, send_message_func):
@@ -52,7 +52,7 @@ class PaymentManager:
     }
 
     def _ensure_tables(self):
-        from models.payment import Payment
+        from bot.models.payment import Payment
         # Make sure the database is connected first
         if database.db.is_closed():
             database.db.connect()

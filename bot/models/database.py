@@ -18,9 +18,9 @@ def init_db(create_tables=True):
         print("✅ Database connected")
         
         if create_tables:
-            from models.user import User
-            from models.offset import Offset
-            from models.payment import Payment   # ✅ moved here
+            from bot.models.user import User
+            from bot.models.offset import Offset
+            from bot.models.payment import Payment   # ✅ moved here
             
             db.create_tables([User, Offset, Payment], safe=True)
             print("✅ Tables created/verified")

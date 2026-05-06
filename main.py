@@ -1,23 +1,23 @@
 from email import message
 
 from matplotlib import text
-from botApiClient import BotApiClient
-from keypad import Keypad
+from bot.core.apiClient import BotApiClient
+from bot.handlers.keypad import Keypad
 import time
 import traceback
-from rubikaMessageParser import CallbackQuery, RubikaParser, Chat, Message
-from language import lang
-from models.offset import Offset
-from connection_manager import ConnectionManager
+from bot.handlers.rubikaMessageParser import CallbackQuery, RubikaParser, Chat, Message
+from bot.managers.languageManager import lang
+from bot.models.offset import Offset
+from bot.managers.connection_manager import ConnectionManager
 import json
-from models.sync_manager import SyncManager, UserManager,LocalUser
-from flood_manager import flood_manager
+from bot.models.sync_manager import SyncManager, UserManager,LocalUser
+from bot.managers.flood_manager import flood_manager
 import random
 import traceback
-from database import init_db
+from bot.models.database import init_db
 import asyncio
 # After initializing apiClient, user_mgr, and keypad
-from group_game_manager_truth_dare import init_group_game_manager
+from bot.managers.group_game_manager_truth_dare import init_group_game_manager
 
 
 
@@ -63,8 +63,8 @@ AUTHORIZE_GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID_MOSHAVERE")
 ADVERTISMENT_THRESHOLD = int(os.environ.get("ADVERTISMENT_THRESHOLD", 30))
 
 #payment manager
-from payment_manager import PaymentManager
-from models.payment import Payment
+from bot.managers.payment_manager import PaymentManager
+from bot.models.payment import Payment
 send_message_func = lambda chat_id, text: apiClient.send_message(chat_id, text)  # adapt to your send method
 payment_mgr = PaymentManager(sync_mgr, user_mgr, send_message_func)
 
@@ -78,6 +78,18 @@ for pid, info in PaymentManager.PRODUCTS.items():
 
 group_game_manager = init_group_game_manager(apiClient, user_mgr)
 advertisment_counter = {}
+
+
+import concurrent.futures
+import threading
+from typing import List, Optional
+from functools import partial
+
+# Create a thread pool (adjust max_workers based on your needs)
+# 4-10 workers is usually good for I/O-bound bot operations
+_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="BotWorker")
+_thread_local = threading.local()
+
 
 
 async def main():
@@ -153,16 +165,6 @@ def message_handler(parsed_response: list[Message]):
     global user_language
     for item in parsed_response:
         handle_one_message(item)
-
-import concurrent.futures
-import threading
-from typing import List, Optional
-from functools import partial
-
-# Create a thread pool (adjust max_workers based on your needs)
-# 4-10 workers is usually good for I/O-bound bot operations
-_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="BotWorker")
-_thread_local = threading.local()
 
 def message_handler(parsed_response: List[Message]):
     """
@@ -480,7 +482,7 @@ def handle_one_message(msg: Message):
         message_to_send = lang.get_text("you_answered_the_question_now_its_other_players_turn", user_language)
 
     elif msg.text == lang.get_text("get_coin", user_language):
-        coin_status_pressed(msg, user)
+        send_keypad_coin_status_pressed(msg, user)
 
     elif msg.text == lang.get_text("buy_premium_account", user_language):
         message_to_send = lang.get_text("premium_account_benefits_are_this", user_language) + "\n" + lang.get_text("premium_account_benefits_list", user_language)
@@ -571,7 +573,6 @@ def handle_one_message(msg: Message):
         message_to_send = None
         keydata = None
         
-
 def do_user_authorization_process(user:LocalUser, chat_id, msg:Message):
 
         
@@ -588,8 +589,6 @@ def do_user_authorization_process(user:LocalUser, chat_id, msg:Message):
 
     else:
         apiClient.send_message(AUTHORIZE_GROUP_CHAT_ID, lang.get_text("the_activation_process_was_not_successful_you_must_first_sign_up", user.language))
-
-
 
 def handle_one_message_in_the_group(user: LocalUser, msg: Message):
     """
@@ -930,8 +929,6 @@ def advertisment_in_the_group(msg:Message, user: LocalUser):
     else:
         advertisment_counter[msg.chat_id] = [1, time.time()]
         
-
-
 def send_message_to_admin(text):
     apiClient.send_message(CHANNEL_INFORM_ADMIN, text)
 
@@ -1142,7 +1139,6 @@ def get_keydata_dare_selected():
     keydata = keypad.build_keypad([row1,row2])
     return keydata
 
-
 def send_keypad_with_message_to_other_player(msg:Message):
     if connection_between_players.is_connected(msg.chat_id):
         # Just send the main options again (truth or dare)
@@ -1165,7 +1161,7 @@ def buy_premium_account_keydata(msg,user:LocalUser):
     products_kb = get_products_keypad(user)
     keypad.send_message_with_keypad(msg.chat_id, lang.get_text("products", user.language), products_kb)
 
-def coin_status_pressed(msg:Message,user:LocalUser):
+def send_keypad_coin_status_pressed(msg:Message,user:LocalUser):
     message_to_send = lang.get_text("your_coin_number",user.language).format(coin=user.coin)
     message_to_send += lang.get_text("you_can_get_coins_by_inviting_friends_and_your_invite_code_is", user.language).format(coin_invitation_number = COIN_INVITATION_NUMBER)
     message_to_send += "\n"+lang.get_text("invite", user.language)+ msg.chat_id
@@ -1183,7 +1179,6 @@ def load_from_local_storage() -> dict:
         traceback.print_exc()
         return None
     
-
 # Product inline keypad builder
 def get_products_keypad(user:LocalUser):
     kp = Keypad()

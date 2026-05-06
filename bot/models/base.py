@@ -1,5 +1,5 @@
 from peewee import Model, DateTimeField
-from database import db
+from bot.models.database import db
 from datetime import datetime
 
 class BaseModel(Model):

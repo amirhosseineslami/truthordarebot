@@ -6,8 +6,8 @@ import atexit
 from typing import Optional, List, Dict, Any
 from peewee import SqliteDatabase, Model, CharField, IntegerField, BigIntegerField, BooleanField, TextField
 from playhouse.shortcuts import model_to_dict
-from models.user import User as RemoteUser
-from database import db as remote_db   # your MySQL connection
+from bot.models.user import User as RemoteUser
+from bot.models.database import db as remote_db   # your MySQL connection
 
 # -------------------------------------------------------------------
 # Local SQLite database and LocalUser model (mirrors RemoteUser)

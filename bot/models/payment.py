@@ -2,7 +2,7 @@ from peewee import CharField, IntegerField, BigIntegerField, BooleanField, DateT
 from .base import BaseModel
 from datetime import datetime, timedelta
 import time
-from zibal_helper import create_zibal_payment
+from bot.services.payment_service import create_zibal_payment
 
 class Payment(BaseModel):
     __tablename__ = 'payments'
@@ -65,7 +65,7 @@ class Payment(BaseModel):
     def verify_payment(cls, track_id: str) -> dict:
         """Verify payment via Zibal (called by polling)"""
         import time
-        from zibal_helper import check_zibal_payment
+        from bot.services.payment_service import check_zibal_payment
 
         try:
             payment = cls.get(cls.track_id == track_id)
