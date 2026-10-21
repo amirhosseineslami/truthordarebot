@@ -1,6 +1,6 @@
 # Bot Project
 
-A sophisticated Python-based bot for the Rubika messaging platform, designed to facilitate anonymous chat connections between users. This bot enables users to "play with strangers" by pairing them randomly, managing connections, and providing a seamless chat experience with integrated keypad interactions, language support, and persistent data storage.
+A sophisticated Python-based bot for the messaging platform, designed to facilitate anonymous chat connections between users. This bot enables users to "play with strangers" by pairing them randomly, managing connections, and providing a seamless chat experience with integrated keypad interactions, language support, and persistent data storage.
 
 ## 🚀 Features
 
